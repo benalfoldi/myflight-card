@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.0";
+const MFC_VERSION = "0.2.1";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -76,12 +76,29 @@ function mfcEsc(value) {
 }
 
 function mfcClock(value) {
-  const text = (value || "").trim();
-  if (!text) return "—";
-  if (text.includes("T")) return text.split("T", 1)[1].slice(0, 5);
-  if (text.length >= 5 && text[2] === ":") return text.slice(0, 5);
+  const text = String(value ?? "").trim().replace(/\s+/g, "");
+  if (!text || text === "-" || text === "—") return "—";
+  if (text.includes("T")) {
+    const clock = text.split("T")[1]?.slice(0, 5);
+    return clock || text;
+  }
+  const colon = text.match(/^(\d{1,2}):(\d{2})/);
+  if (colon) {
+    const hours = Number(colon[1]);
+    const minutes = Number(colon[2]);
+    if (hours <= 23 && minutes <= 59) {
+      return `${String(hours).padStart(2, "0")}:${colon[2]}`;
+    }
+  }
   if (/^\d{4}$/.test(text)) return `${text.slice(0, 2)}:${text.slice(2)}`;
-  return text;
+  const digits = text.replace(/\D/g, "");
+  const clock = digits.length >= 4 ? digits.slice(0, 4) : digits.length === 3 ? `0${digits}` : "";
+  if (clock.length === 4) {
+    const hours = Number(clock.slice(0, 2));
+    const minutes = Number(clock.slice(2, 4));
+    if (hours <= 23 && minutes <= 59) return `${clock.slice(0, 2)}:${clock.slice(2)}`;
+  }
+  return String(value ?? "").trim() || "—";
 }
 
 function mfcDateLabel(iso) {
@@ -111,16 +128,46 @@ function mfcIconPlane(color) {
   return `<span class="mfc-ico" style="background:${color}" aria-hidden="true"></span>`;
 }
 
-function mfcEtaLeft(times) {
-  if (!times) return "";
+function mfcStatusLabel(status) {
+  return String(status || "").replace(/_/g, " ").trim();
+}
+
+function mfcStatusClass(status) {
+  const key = String(status || "").toLowerCase().replace(/\s+/g, "_");
+  if (key === "preflight" || key === "on_ground" || key === "on ground") return "preflight";
+  if (key === "landed") return "landed";
+  return "en-route";
+}
+
+function mfcDutyCode(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  return raw.split(/\s+/)[0] || raw;
+}
+
+function mfcRemainingMins(times) {
+  if (!times || times.arr_label === "ATA") return null;
+  if (times.eta_at) {
+    const ms = Date.parse(times.eta_at);
+    if (Number.isFinite(ms)) return Math.round((ms - Date.now()) / 60000);
+  }
+  if (times.eta_in_minutes == null || times.eta_in_minutes === "") return null;
   const mins = Number(times.eta_in_minutes);
-  if (!Number.isFinite(mins)) return "";
-  if (times.arr_label === "ATA") return "";
-  if (mins <= 0) return "Arriving";
+  return Number.isFinite(mins) ? mins : null;
+}
+
+function mfcFormatDuration(mins) {
   const hours = Math.floor(mins / 60);
   const rest = mins % 60;
-  const body = hours > 0 ? `${hours}h ${String(rest).padStart(2, "0")}m` : `${mins}m`;
-  return `${body} to ${times.arr_label || "ETA"}`;
+  if (hours > 0) return `${hours}h ${String(rest).padStart(2, "0")}m`;
+  return `${mins}m`;
+}
+
+function mfcEtaLeft(times) {
+  const mins = mfcRemainingMins(times);
+  if (mins == null) return "";
+  if (mins <= 0) return "Arriving now";
+  return `Arriving in ${mfcFormatDuration(mins)}`;
 }
 
 function mfcWeatherPrefs(config) {
@@ -178,6 +225,30 @@ function mfcStyles(dark, theme) {
       mask: url("${MFC_PLANE_PNG}") center / contain no-repeat;
     }
     .mfc-sub { color: ${muted}; font-size: 0.82rem; }
+    .mfc-h-main { min-width: 0; }
+    .mfc-h-extra { flex: 0 0 auto; }
+    .mfc-status {
+      display: inline-flex; align-items: center; margin-top: 6px;
+      font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em;
+      text-transform: uppercase; padding: 4px 10px; border-radius: 999px;
+      background: rgba(198, 0, 126, 0.16); color: ${magenta};
+      border: 1px solid rgba(198, 0, 126, 0.45);
+    }
+    .mfc-status.preflight {
+      background: rgba(10, 31, 68, 0.1); color: ${navy};
+      border-color: rgba(10, 31, 68, 0.3);
+    }
+    .mfc-status.landed {
+      background: rgba(13, 148, 136, 0.14); color: #0d9488;
+      border-color: rgba(13, 148, 136, 0.4);
+    }
+    .mfc-eta { margin: 8px 0 0; font-size: 0.92rem; font-weight: 700; color: ${navy}; }
+    .mfc-toggle { display: flex; border: 1px solid ${border}; border-radius: 8px; overflow: hidden; }
+    .mfc-toggle button {
+      font: inherit; font-size: 0.72rem; font-weight: 700; padding: 6px 10px;
+      min-height: 32px; border: 0; background: ${bg}; color: ${muted}; cursor: pointer;
+    }
+    .mfc-toggle button.on { background: ${navy}; color: #fff; }
     .mfc-muted { color: ${muted}; font-size: 0.88rem; }
     .mfc-empty { margin: 0; color: ${muted}; }
     .mfc-list { margin: 8px 0 0; padding-left: 18px; font-size: 0.9rem; line-height: 1.45; }
@@ -244,6 +315,7 @@ function mfcStyles(dark, theme) {
       border: 1px solid ${border}; background: ${bg};
     }
     .mfc-cal-d .num { font-weight: 700; display: block; margin-bottom: 2px; }
+    .mfc-cal-d .lbl { display: block; overflow: hidden; word-break: break-word; }
     .mfc-cal-d.empty { background: transparent; border-color: transparent; }
     .mfc-cal-d.weekend { opacity: .85; }
     .mfc-badge { padding: 10px 12px; }
@@ -276,7 +348,7 @@ function mfcProgress(display) {
       <span>${mfcEsc(leftLabel)} ${mfcEsc(mfcClock(leftTime))}</span>
       <span>${mfcEsc(rightLabel)} ${mfcEsc(mfcClock(rightTime))}</span>
     </div>
-    ${eta ? `<p class="mfc-muted" style="margin:6px 0 0">${mfcEsc(eta)}</p>` : ""}
+    ${eta ? `<p class="mfc-eta" data-eta-at="${mfcEsc(times.eta_at || "")}" data-mins="${times.eta_in_minutes ?? ""}" data-arr-label="${mfcEsc(times.arr_label || "ETA")}">${mfcEsc(eta)}</p>` : ""}
     <div class="mfc-chips">${depChip}${arrChip}</div>
   `;
 }
@@ -325,61 +397,134 @@ function mfcPlaneIcon(L, heading) {
   });
 }
 
-function mfcMountMap(host, mapData, weatherPrefs) {
+function mfcTeardownMap(host) {
   if (!host) return;
-  mfcInjectLeafletCss(host.getRootNode());
-  const data = mapData || {};
-  const wx = weatherPrefs || mfcWeatherPrefs({});
-  mfcLoadLeaflet().then((L) => {
-    if (host._mfcMap) {
-      host._mfcMap.remove();
-      host._mfcMap = null;
+  if (host._mfcWxStop) {
+    try { host._mfcWxStop(); } catch (_e) { /* ignore */ }
+    host._mfcWxStop = null;
+  }
+  if (host._mfcMap) {
+    try { host._mfcMap.remove(); } catch (_e) { /* ignore */ }
+    host._mfcMap = null;
+  }
+  host._mfcLayers = null;
+  host._mfcRouteKey = null;
+  host._mfcPending = false;
+  host._mfcPendingData = null;
+}
+
+function mfcRouteKey(data) {
+  const dep = data?.departure || {};
+  const arr = data?.arrival || {};
+  return `${dep.lat ?? ""},${dep.lon ?? ""}|${arr.lat ?? ""},${arr.lon ?? ""}`;
+}
+
+function mfcSyncMapLayers(L, map, host, data) {
+  const layers = host._mfcLayers || {};
+  const bounds = [];
+  const dep = data.departure;
+  const arr = data.arrival;
+  const routeKey = mfcRouteKey(data);
+  const routeChanged = host._mfcRouteKey !== routeKey;
+  host._mfcRouteKey = routeKey;
+
+  const setCircle = (key, lat, lon, opts) => {
+    if (lat == null || lon == null) {
+      if (layers[key]) { map.removeLayer(layers[key]); layers[key] = null; }
+      return;
     }
-    const map = L.map(host, { zoomControl: false, attributionControl: false });
-    host._mfcMap = map;
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 13,
-    }).addTo(map);
-    const bounds = [];
-    const dep = data.departure;
-    const arr = data.arrival;
-    if (dep?.lat != null && dep?.lon != null) {
-      bounds.push([dep.lat, dep.lon]);
-      L.circleMarker([dep.lat, dep.lon], { radius: 5, color: "#0a1f44", fillOpacity: 1 }).addTo(map);
-    }
-    if (arr?.lat != null && arr?.lon != null) {
-      bounds.push([arr.lat, arr.lon]);
-      L.circleMarker([arr.lat, arr.lon], { radius: 5, color: "#c6007e", fillOpacity: 1 }).addTo(map);
-    }
-    if (dep?.lat != null && arr?.lat != null) {
-      L.polyline([[dep.lat, dep.lon], [arr.lat, arr.lon]], {
+    const latlng = [lat, lon];
+    bounds.push(latlng);
+    if (layers[key]) layers[key].setLatLng(latlng);
+    else layers[key] = L.circleMarker(latlng, opts).addTo(map);
+  };
+
+  setCircle("dep", dep?.lat, dep?.lon, { radius: 5, color: "#0a1f44", fillOpacity: 1 });
+  setCircle("arr", arr?.lat, arr?.lon, { radius: 5, color: "#c6007e", fillOpacity: 1 });
+
+  if (dep?.lat != null && arr?.lat != null) {
+    const line = [[dep.lat, dep.lon], [arr.lat, arr.lon]];
+    if (layers.route) layers.route.setLatLngs(line);
+    else {
+      layers.route = L.polyline(line, {
         color: "#c6007e",
         weight: 2,
         dashArray: "6 6",
         opacity: 0.7,
       }).addTo(map);
     }
-    const trail = Array.isArray(data.trail) ? data.trail : [];
-    if (trail.length > 1) {
-      L.polyline(
-        trail.map((p) => [p.latitude, p.longitude]),
-        { color: "#0a1f44", weight: 2 },
-      ).addTo(map);
-    }
-    if (data.latitude != null && data.longitude != null) {
-      const here = [data.latitude, data.longitude];
-      bounds.push(here);
-      L.marker(here, { icon: mfcPlaneIcon(L, data.heading) }).addTo(map);
-    }
-    if (bounds.length) {
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 8 });
+  } else if (layers.route) {
+    map.removeLayer(layers.route);
+    layers.route = null;
+  }
+
+  const trail = Array.isArray(data.trail) ? data.trail : [];
+  const trailLatLngs = trail
+    .filter((p) => p && p.latitude != null && p.longitude != null)
+    .map((p) => [p.latitude, p.longitude]);
+  if (trailLatLngs.length > 1) {
+    if (layers.trail) layers.trail.setLatLngs(trailLatLngs);
+    else layers.trail = L.polyline(trailLatLngs, { color: "#0a1f44", weight: 2 }).addTo(map);
+  } else if (layers.trail) {
+    map.removeLayer(layers.trail);
+    layers.trail = null;
+  }
+
+  if (data.latitude != null && data.longitude != null) {
+    const here = [data.latitude, data.longitude];
+    bounds.push(here);
+    if (layers.plane) {
+      layers.plane.setLatLng(here);
+      layers.plane.setIcon(mfcPlaneIcon(L, data.heading));
     } else {
-      map.setView([47.4, 19.2], 4);
+      layers.plane = L.marker(here, { icon: mfcPlaneIcon(L, data.heading) }).addTo(map);
     }
+  } else if (layers.plane) {
+    map.removeLayer(layers.plane);
+    layers.plane = null;
+  }
+
+  host._mfcLayers = layers;
+  if (routeChanged && bounds.length) {
+    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 8 });
+  } else if (routeChanged && !bounds.length) {
+    map.setView([47.4, 19.2], 4);
+  }
+}
+
+function mfcMountMap(host, mapData, weatherPrefs) {
+  if (!host) return;
+  mfcInjectLeafletCss(host.getRootNode());
+  const data = mapData || {};
+  const wx = weatherPrefs || mfcWeatherPrefs({});
+  host._mfcPendingData = data;
+  if (host._mfcMap && window.L) {
+    mfcSyncMapLayers(window.L, host._mfcMap, host, data);
+    return;
+  }
+  if (host._mfcPending) return;
+  host._mfcPending = true;
+  mfcLoadLeaflet().then((L) => {
+    host._mfcPending = false;
+    if (!host.isConnected) return;
+    const latest = host._mfcPendingData || data;
+    if (host._mfcMap) {
+      mfcSyncMapLayers(L, host._mfcMap, host, latest);
+      return;
+    }
+    const map = L.map(host, { zoomControl: false, attributionControl: false });
+    host._mfcMap = map;
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 13,
+    }).addTo(map);
+    host._mfcLayers = {};
+    host._mfcRouteKey = "";
+    mfcSyncMapLayers(L, map, host, latest);
     mfcAttachWeather(map, host, wx);
-    setTimeout(() => map.invalidateSize(), 50);
+    setTimeout(() => { if (host._mfcMap) host._mfcMap.invalidateSize(); }, 50);
   }).catch(() => {
-    host.innerHTML = `<p class="mfc-muted" style="padding:12px">Map unavailable</p>`;
+    host._mfcPending = false;
+    if (!host._mfcMap) host.innerHTML = `<p class="mfc-muted" style="padding:12px">Map unavailable</p>`;
   });
 }
 
@@ -403,6 +548,7 @@ function mfcProgressFromLeg(leg, extra) {
 }
 
 function mfcAttachWeather(map, host, prefs) {
+  if (host._mfcWxStop) return;
   const wrap = document.createElement("div");
   wrap.className = "mfc-wx";
   wrap.innerHTML = `
@@ -538,6 +684,13 @@ function mfcAttachWeather(map, host, prefs) {
     });
   });
   apply();
+  host._mfcWxStop = () => {
+    stopRadar();
+    stopStorms();
+    stopWind();
+    wrap.remove();
+    host._mfcWxStop = null;
+  };
 }
 
 class MyFlightBaseCard extends HTMLElement {
@@ -558,11 +711,31 @@ class MyFlightBaseCard extends HTMLElement {
   setConfig(config) {
     if (!config) throw new Error("Invalid config");
     this._config = { theme: "brand", ...config };
+    this._hassKey = "";
+    if (this._hass) this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    const snap = this._snapshot();
+    const key = [
+      snap.entity,
+      snap.state?.last_updated || "",
+      JSON.stringify(this._config),
+      mfcIsDark(hass) ? "d" : "l",
+    ].join("|");
+    if (key === this._hassKey) return;
+    this._hassKey = key;
     this._render();
+  }
+
+  disconnectedCallback() {
+    if (this._etaTimer) {
+      clearInterval(this._etaTimer);
+      this._etaTimer = null;
+    }
+    mfcTeardownMap(this.shadowRoot?.querySelector(".mfc-map"));
+    this._hassKey = "";
   }
 
   getCardSize() {
@@ -584,22 +757,118 @@ class MyFlightBaseCard extends HTMLElement {
     this._renderShell("myFlight", `<p class="mfc-empty">No status data. Edit this card and pick the myFlight Status sensor.</p>`);
   }
 
-  _renderShell(title, body, { map = null, subtitle = "", icon = false } = {}) {
+  _renderShell(title, body, { map = null, subtitle = "", status = "", icon = false, headerExtra = "" } = {}) {
     const dark = mfcIsDark(this._hass);
-    this.shadowRoot.innerHTML = `
-      <style>${mfcStyles(dark, this._config.theme)}</style>
-      <div class="mfc">
-        <div class="mfc-h">
-          <div>
-            <h2 class="mfc-title">${icon ? mfcIconPlane("currentColor") : ""}${mfcEsc(title)}</h2>
-            ${subtitle ? `<div class="mfc-sub">${mfcEsc(subtitle)}</div>` : ""}
+    const root = this.shadowRoot;
+    const css = mfcStyles(dark, this._config.theme);
+    let wrap = root.querySelector(".mfc");
+    if (!wrap) {
+      root.innerHTML = `
+        <style></style>
+        <div class="mfc">
+          <div class="mfc-h">
+            <div class="mfc-h-main">
+              <h2 class="mfc-title"></h2>
+              <div class="mfc-status" hidden></div>
+              <div class="mfc-sub" hidden></div>
+            </div>
+            <div class="mfc-h-extra"></div>
           </div>
+          <div class="mfc-body"></div>
+          <div class="mfc-map" hidden></div>
         </div>
-        ${body}
-        ${map ? `<div class="mfc-map" id="mfc-map"></div>` : ""}
-      </div>
-    `;
-    if (map) mfcMountMap(this.shadowRoot.getElementById("mfc-map"), map, mfcWeatherPrefs(this._config));
+      `;
+      wrap = root.querySelector(".mfc");
+    }
+    const style = root.querySelector("style");
+    if (style && style.textContent !== css) style.textContent = css;
+    wrap.querySelector(".mfc-title").innerHTML = `${icon ? mfcIconPlane("currentColor") : ""}${mfcEsc(title)}`;
+    const sub = wrap.querySelector(".mfc-sub");
+    if (subtitle) {
+      sub.hidden = false;
+      sub.textContent = subtitle;
+    } else {
+      sub.hidden = true;
+      sub.textContent = "";
+    }
+    const st = wrap.querySelector(".mfc-status");
+    const statusText = mfcStatusLabel(status);
+    if (statusText) {
+      st.hidden = false;
+      st.textContent = statusText;
+      st.className = `mfc-status ${mfcStatusClass(status)}`;
+    } else {
+      st.hidden = true;
+      st.textContent = "";
+      st.className = "mfc-status";
+    }
+    wrap.querySelector(".mfc-h-extra").innerHTML = headerExtra || "";
+    wrap.querySelector(".mfc-body").innerHTML = body;
+    const mapEl = wrap.querySelector(".mfc-map");
+    if (map) {
+      const wasHidden = mapEl.hidden;
+      mapEl.hidden = false;
+      mfcMountMap(mapEl, map, mfcWeatherPrefs(this._config));
+      if (wasHidden && mapEl._mfcMap) {
+        setTimeout(() => mapEl._mfcMap.invalidateSize(), 50);
+      }
+    } else {
+      mapEl.hidden = true;
+      mfcTeardownMap(mapEl);
+    }
+    wrap.querySelectorAll("[data-mfc-details]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this._setRosterDetails(btn.getAttribute("data-mfc-details") === "1");
+      });
+    });
+    this._syncEtaTick();
+  }
+
+  _rosterDetails() {
+    if (typeof this._config.details === "boolean") return this._config.details;
+    try {
+      return localStorage.getItem(`mfc-roster-details:${this._entity()}`) === "1";
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  _setRosterDetails(on) {
+    this._config = { ...this._config, details: on };
+    try {
+      localStorage.setItem(`mfc-roster-details:${this._entity()}`, on ? "1" : "0");
+    } catch (_e) { /* ignore */ }
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config: this._config },
+      bubbles: true,
+      composed: true,
+    }));
+    this._hassKey = "";
+    this._render();
+  }
+
+  _syncEtaTick() {
+    const el = this.shadowRoot?.querySelector(".mfc-eta");
+    if (!el) {
+      if (this._etaTimer) {
+        clearInterval(this._etaTimer);
+        this._etaTimer = null;
+      }
+      return;
+    }
+    if (this._etaTimer) return;
+    this._etaTimer = setInterval(() => {
+      const node = this.shadowRoot?.querySelector(".mfc-eta");
+      if (!node) return;
+      const minsRaw = node.getAttribute("data-mins");
+      node.textContent = mfcEtaLeft({
+        eta_at: node.getAttribute("data-eta-at") || undefined,
+        eta_in_minutes: minsRaw === "" || minsRaw == null ? null : Number(minsRaw),
+        arr_label: node.getAttribute("data-arr-label") || "ETA",
+      });
+    }, 15000);
   }
 }
 
@@ -695,7 +964,7 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
         <span class="mfc-muted">${mfcEsc([alt, gs].filter(Boolean).join(" · "))}</span></p>
       ${mfcProgress(route.departure ? route : null)}
       ${track.tracking?.found ? "" : `<p class="mfc-muted">${mfcEsc(track.tracking?.message || "No live position")}</p>`}
-    `, { map: track.map, subtitle: pos?.on_ground ? "On ground" : "En route", icon: true });
+    `, { map: track.map, status: pos?.on_ground ? "on ground" : "en route", icon: true });
   }
 }
 
@@ -771,7 +1040,7 @@ class MyFlightPartnerFlightCard extends MyFlightBaseCard {
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
     this._renderShell(`${live.partner_label || "Partner"} · Live flight`, `
       ${mfcProgress(progress)}
-    `, { map: live.map, subtitle: (live.status || "").replace("_", " "), icon: true });
+    `, { map: live.map, status: live.status, icon: true });
   }
 }
 
@@ -809,7 +1078,7 @@ class MyFlightPartnerBadgeCard extends MyFlightBaseCard {
     }
     const net = live.network || {};
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
-    this._renderShell(title, mfcProgress(progress), { subtitle: (live.status || "").replace("_", " "), icon: true });
+    this._renderShell(title, mfcProgress(progress), { status: live.status, icon: true });
   }
 }
 
@@ -825,6 +1094,7 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       return;
     }
     const weekStart = this._config.week_start === "sunday" ? "sunday" : "monday";
+    const details = this._rosterDetails();
     const labels = weekStart === "monday"
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -844,12 +1114,18 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       const color = MFC_CAT_COLOR[cat] || MFC_CAT_COLOR.unknown;
       const bg = row ? (MFC_CAT_BG[cat] || MFC_CAT_BG.unknown) : "";
       const style = row ? `style="background:${bg};border-color:${color};color:${color}"` : "";
-      cells.push(`<div class="mfc-cal-d${weekend.includes(col) ? " weekend" : ""}" ${style}><span class="num">${day}</span>${row ? mfcEsc(row.text || row.code || "") : ""}</div>`);
+      const full = row ? (row.text || row.code || "") : "";
+      const label = !row ? "" : (details ? full : (row.code || mfcDutyCode(row.text) || full));
+      cells.push(`<div class="mfc-cal-d${weekend.includes(col) ? " weekend" : ""}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcEsc(label)}</span>` : ""}</div>`);
     }
     const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const headerExtra = `<div class="mfc-toggle" role="group" aria-label="Duty labels">
+      <button type="button" data-mfc-details="0" class="${details ? "" : "on"}">Codes</button>
+      <button type="button" data-mfc-details="1" class="${details ? "on" : ""}">Details</button>
+    </div>`;
     this._renderShell(mfcTitled("Roster", a), `
       <div class="mfc-cal">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
-    `, { subtitle: titleDate, icon: true });
+    `, { subtitle: titleDate, icon: true, headerExtra });
   }
 }
 
@@ -954,10 +1230,17 @@ class MyFlightCardEditor extends HTMLElement {
     }
     if (type.includes("roster")) {
       const week = this._config.week_start === "sunday" ? "sunday" : "monday";
+      const details = this._config.details === true;
       extra.push(`<label>Week starts
         <select class="wk" style="width:100%">
           <option value="monday" ${week === "monday" ? "selected" : ""}>Monday</option>
           <option value="sunday" ${week === "sunday" ? "selected" : ""}>Sunday</option>
+        </select>
+      </label>`);
+      extra.push(`<label>Duty labels
+        <select class="det" style="width:100%">
+          <option value="codes" ${details ? "" : "selected"}>Codes</option>
+          <option value="details" ${details ? "selected" : ""}>Details</option>
         </select>
       </label>`);
     }
@@ -986,6 +1269,8 @@ class MyFlightCardEditor extends HTMLElement {
     if (apt) apt.onchange = (e) => this._set("airport", e.target.value.trim().toUpperCase());
     const wk = this.querySelector(".wk");
     if (wk) wk.onchange = (e) => this._set("week_start", e.target.value);
+    const det = this.querySelector(".det");
+    if (det) det.onchange = (e) => this._set("details", e.target.value === "details");
   }
 }
 

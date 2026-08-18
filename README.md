@@ -16,4 +16,4 @@ entity: sensor.myflight_status
 theme: brand
 ```
 
-`theme`: `brand` (default) or `ha`.
+`theme`: `brand` (default) or `ha`. Calendar cards can switch between short codes and full labels.
