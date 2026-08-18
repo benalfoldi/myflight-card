@@ -1,10 +1,28 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.1.2";
+const MFC_VERSION = "0.2.0";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
+const MFC_PLANE_PNG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="M21 16v-2l-8-5V3.5A1.5 1.5 0 0 0 11.5 2 1.5 1.5 0 0 0 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>')}`;
+const MFC_WX_KEY = "mfc-map-weather";
+const MFC_CAT_COLOR = {
+  flight: "#2563eb",
+  standby: "#d97706",
+  off: "#64748b",
+  paid_leave: "#16a34a",
+  training: "#7c3aed",
+  unknown: "#06b6d4",
+};
+const MFC_CAT_BG = {
+  flight: "rgba(37,99,235,.12)",
+  standby: "rgba(217,119,6,.12)",
+  off: "rgba(100,116,139,.12)",
+  paid_leave: "rgba(22,163,74,.12)",
+  training: "rgba(124,58,237,.12)",
+  unknown: "rgba(6,182,212,.12)",
+};
 
 function mfcIsSnapshot(attrs) {
   if (!attrs || typeof attrs !== "object") return false;
@@ -79,6 +97,55 @@ function mfcDateLabel(iso) {
   }
 }
 
+function mfcWho(attrs) {
+  const profile = attrs?.profile || {};
+  return profile.display_name || profile.username || "";
+}
+
+function mfcTitled(base, attrs) {
+  const who = mfcWho(attrs);
+  return who ? `${base} · ${who}` : base;
+}
+
+function mfcIconPlane(color) {
+  return `<span class="mfc-ico" style="background:${color}" aria-hidden="true"></span>`;
+}
+
+function mfcEtaLeft(times) {
+  if (!times) return "";
+  const mins = Number(times.eta_in_minutes);
+  if (!Number.isFinite(mins)) return "";
+  if (times.arr_label === "ATA") return "";
+  if (mins <= 0) return "Arriving";
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  const body = hours > 0 ? `${hours}h ${String(rest).padStart(2, "0")}m` : `${mins}m`;
+  return `${body} to ${times.arr_label || "ETA"}`;
+}
+
+function mfcWeatherPrefs(config) {
+  let storms = config.weather_storms;
+  let rain = config.weather_rain;
+  let wind = config.weather_wind;
+  try {
+    const stored = JSON.parse(localStorage.getItem(MFC_WX_KEY) || "null");
+    if (stored && typeof stored === "object") {
+      if (storms == null) storms = stored.thunderstorms;
+      if (rain == null) rain = stored.precipitation;
+      if (wind == null) wind = stored.winds;
+    }
+  } catch (_e) { /* ignore */ }
+  return {
+    thunderstorms: storms !== false,
+    precipitation: rain !== false,
+    winds: wind === true,
+  };
+}
+
+function mfcSaveWeather(prefs) {
+  try { localStorage.setItem(MFC_WX_KEY, JSON.stringify(prefs)); } catch (_e) { /* ignore */ }
+}
+
 function mfcStyles(dark, theme) {
   const brand = theme !== "ha";
   const navy = brand ? "#0a1f44" : "var(--primary-text-color)";
@@ -103,7 +170,13 @@ function mfcStyles(dark, theme) {
       display: flex; align-items: flex-start; justify-content: space-between;
       gap: 10px; margin-bottom: 10px;
     }
-    .mfc-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: ${navy}; letter-spacing: -0.01em; }
+    .mfc-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: ${navy}; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+    .mfc-ico {
+      display: inline-block; width: 18px; height: 18px; flex: 0 0 18px;
+      background-color: currentColor;
+      -webkit-mask: url("${MFC_PLANE_PNG}") center / contain no-repeat;
+      mask: url("${MFC_PLANE_PNG}") center / contain no-repeat;
+    }
     .mfc-sub { color: ${muted}; font-size: 0.82rem; }
     .mfc-muted { color: ${muted}; font-size: 0.88rem; }
     .mfc-empty { margin: 0; color: ${muted}; }
@@ -126,6 +199,10 @@ function mfcStyles(dark, theme) {
     .mfc-cell { background: ${bg}; border: 1px solid ${border}; border-radius: 10px; padding: 8px; text-align: center; }
     .mfc-cell strong { display: block; font-size: 1.05rem; }
     .mfc-cell span { color: ${muted}; font-size: 0.72rem; }
+    .mfc-cell.late strong { color: #c0392b; }
+    .mfc-cell.early strong { color: #0d9488; }
+    .mfc-cell.ok strong { color: ${navy}; }
+    .mfc-cell.cancel strong { color: ${magenta}; }
     .mfc-progress {
       position: relative; height: 8px; border-radius: 999px; background: ${bg};
       border: 1px solid ${border}; margin: 14px 0 10px;
@@ -136,15 +213,40 @@ function mfcStyles(dark, theme) {
     }
     .mfc-plane {
       position: absolute; top: 50%; left: var(--p, 0%);
-      width: 0; height: 0; transform: translate(-50%, -50%);
-      border-left: 10px solid ${magenta};
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
+      width: 20px; height: 20px; transform: translate(-50%, -50%) rotate(90deg);
+      background-color: ${magenta};
+      -webkit-mask: url("${MFC_PLANE_PNG}") center / contain no-repeat;
+      mask: url("${MFC_PLANE_PNG}") center / contain no-repeat;
     }
     .mfc-ends { display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 700; }
     .mfc-times { display: flex; justify-content: space-between; color: ${muted}; font-size: 0.78rem; margin-top: 2px; }
-    .mfc-map { height: 180px; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid ${border}; z-index: 0; }
+    .mfc-map { height: 180px; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid ${border}; z-index: 0; position: relative; }
     .mfc-map.leaflet-container { background: ${bg}; }
+    .mfc-wx {
+      position: absolute; top: 8px; right: 8px; z-index: 500;
+      display: flex; gap: 4px;
+    }
+    .mfc-wx button {
+      font: inherit; font-size: 0.72rem; font-weight: 700; min-width: 28px; height: 28px;
+      border-radius: 8px; border: 1px solid ${border}; background: ${card}; color: ${muted}; cursor: pointer;
+    }
+    .mfc-wx button.on { color: ${navy}; border-color: ${magenta}; }
+    .mfc-board { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 8px; }
+    .mfc-board th { text-align: left; color: ${muted}; font-weight: 600; padding: 4px 6px; }
+    .mfc-board td { padding: 5px 6px; border-top: 1px solid ${border}; }
+    .mfc-board .late { color: #c0392b; font-weight: 600; }
+    .mfc-board .early { color: #0d9488; font-weight: 600; }
+    .mfc-board .cancel { color: ${magenta}; text-decoration: line-through; }
+    .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 8px; }
+    .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
+    .mfc-cal-d {
+      min-height: 52px; border-radius: 8px; padding: 4px; font-size: 0.68rem; line-height: 1.2;
+      border: 1px solid ${border}; background: ${bg};
+    }
+    .mfc-cal-d .num { font-weight: 700; display: block; margin-bottom: 2px; }
+    .mfc-cal-d.empty { background: transparent; border-color: transparent; }
+    .mfc-cal-d.weekend { opacity: .85; }
+    .mfc-badge { padding: 10px 12px; }
     a { color: ${magenta}; }
   `;
 }
@@ -152,10 +254,16 @@ function mfcStyles(dark, theme) {
 function mfcProgress(display) {
   if (!display || !display.departure) return "";
   const pct = Math.round(Math.max(0, Math.min(1, Number(display.progress) || 0)) * 100);
-  const depChip = display.depDelayText
+  const times = display.times || {};
+  const leftLabel = times.dep_label || display.leftTimeLabel || "STD";
+  const rightLabel = times.arr_label || display.rightTimeLabel || "STA";
+  const leftTime = times.dep_time || display.leftTime;
+  const rightTime = times.arr_time || display.rightTime;
+  const eta = mfcEtaLeft(times);
+  const depChip = display.depDelayText && display.depDelayText !== "On time"
     ? `<span class="mfc-chip ${mfcEsc(display.depDelayTone || "")}">Dep · ${mfcEsc(display.depDelayText)}</span>`
     : "";
-  const arrChip = display.arrDelayText
+  const arrChip = display.arrDelayText && display.arrDelayText !== "On time"
     ? `<span class="mfc-chip ${mfcEsc(display.arrDelayTone || "")}">Arr · ${mfcEsc(display.arrDelayText)}</span>`
     : "";
   return `
@@ -165,9 +273,10 @@ function mfcProgress(display) {
       <div class="mfc-plane" title="${pct}%"></div>
     </div>
     <div class="mfc-times">
-      <span>${mfcEsc(display.leftTimeLabel || "STD")} ${mfcEsc(mfcClock(display.leftTime))}</span>
-      <span>${mfcEsc(display.rightTimeLabel || "STA")} ${mfcEsc(mfcClock(display.rightTime))}</span>
+      <span>${mfcEsc(leftLabel)} ${mfcEsc(mfcClock(leftTime))}</span>
+      <span>${mfcEsc(rightLabel)} ${mfcEsc(mfcClock(rightTime))}</span>
     </div>
+    ${eta ? `<p class="mfc-muted" style="margin:6px 0 0">${mfcEsc(eta)}</p>` : ""}
     <div class="mfc-chips">${depChip}${arrChip}</div>
   `;
 }
@@ -210,16 +319,17 @@ function mfcPlaneIcon(L, heading) {
   const rot = Number(heading) || 0;
   return L.divIcon({
     className: "mfc-ac-icon",
-    html: `<div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:18px solid #c6007e;transform:rotate(${rot}deg)"></div>`,
-    iconSize: [16, 18],
-    iconAnchor: [8, 9],
+    html: `<div style="width:18px;height:18px;background:#c6007e;-webkit-mask:url('${MFC_PLANE_PNG}') center / contain no-repeat;mask:url('${MFC_PLANE_PNG}') center / contain no-repeat;transform:rotate(${rot}deg)"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
   });
 }
 
-function mfcMountMap(host, mapData) {
+function mfcMountMap(host, mapData, weatherPrefs) {
   if (!host) return;
   mfcInjectLeafletCss(host.getRootNode());
   const data = mapData || {};
+  const wx = weatherPrefs || mfcWeatherPrefs({});
   mfcLoadLeaflet().then((L) => {
     if (host._mfcMap) {
       host._mfcMap.remove();
@@ -266,6 +376,7 @@ function mfcMountMap(host, mapData) {
     } else {
       map.setView([47.4, 19.2], 4);
     }
+    mfcAttachWeather(map, host, wx);
     setTimeout(() => map.invalidateSize(), 50);
   }).catch(() => {
     host.innerHTML = `<p class="mfc-muted" style="padding:12px">Map unavailable</p>`;
@@ -287,7 +398,146 @@ function mfcProgressFromLeg(leg, extra) {
     depDelayTone: net.departure_delay_tone,
     arrDelayText: net.arrival_delay_text,
     arrDelayTone: net.arrival_delay_tone,
+    times: extra?.times,
   };
+}
+
+function mfcAttachWeather(map, host, prefs) {
+  const wrap = document.createElement("div");
+  wrap.className = "mfc-wx";
+  wrap.innerHTML = `
+    <button type="button" data-k="thunderstorms" class="${prefs.thunderstorms ? "on" : ""}" title="Storms">S</button>
+    <button type="button" data-k="precipitation" class="${prefs.precipitation ? "on" : ""}" title="Rain">R</button>
+    <button type="button" data-k="winds" class="${prefs.winds ? "on" : ""}" title="Wind">W</button>
+  `;
+  host.appendChild(wrap);
+  const state = { ...prefs };
+  let radar = null;
+  let stormLayer = null;
+  let windLayer = null;
+  let socket = null;
+
+  const ensurePane = (name, z) => {
+    if (!map.getPane(name)) {
+      const pane = map.createPane(name);
+      pane.style.zIndex = String(z);
+      pane.style.pointerEvents = "none";
+    }
+  };
+
+  const stopRadar = () => {
+    if (radar) { map.removeLayer(radar); radar = null; }
+  };
+  const stopStorms = () => {
+    if (socket) { try { socket.close(); } catch (_e) { /* ignore */ } socket = null; }
+    if (stormLayer) { map.removeLayer(stormLayer); stormLayer = null; }
+  };
+  const stopWind = () => {
+    if (windLayer) { map.removeLayer(windLayer); windLayer = null; }
+  };
+
+  const startRadar = async () => {
+    stopRadar();
+    try {
+      const res = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+      const payload = await res.json();
+      const frames = payload.radar?.past || [];
+      const latest = frames[frames.length - 1];
+      if (!payload.host || !latest?.path) return;
+      const hostUrl = String(payload.host).replace(/\/$/, "");
+      ensurePane("weatherRasterPane", 350);
+      radar = window.L.tileLayer(`${hostUrl}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+        pane: "weatherRasterPane",
+        opacity: 0.72,
+        tileSize: 256,
+        maxNativeZoom: 7,
+        maxZoom: 18,
+      }).addTo(map);
+    } catch (_e) { /* ignore */ }
+  };
+
+  const startStorms = () => {
+    stopStorms();
+    ensurePane("weatherVectorPane", 550);
+    stormLayer = window.L.layerGroup().addTo(map);
+    try {
+      socket = new WebSocket("wss://ws1.blitzortung.org/");
+      socket.onopen = () => { try { socket.send('{"a":111}'); } catch (_e) { /* ignore */ } };
+      socket.onmessage = (event) => {
+        if (typeof event.data !== "string") return;
+        try {
+          const parsed = JSON.parse(event.data);
+          const row = Array.isArray(parsed) ? parsed[0] : parsed;
+          const lat = Number(row?.lat);
+          const lon = Number(row?.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon) || !stormLayer) return;
+          window.L.circleMarker([lat, lon], {
+            pane: "weatherVectorPane",
+            radius: 3,
+            color: "#f59e0b",
+            fillColor: "#fde047",
+            fillOpacity: 0.8,
+            weight: 1,
+            interactive: false,
+          }).addTo(stormLayer);
+        } catch (_e) { /* ignore */ }
+      };
+    } catch (_e) { /* ignore */ }
+  };
+
+  const startWind = async () => {
+    stopWind();
+    const b = map.getBounds();
+    const lats = [];
+    const lons = [];
+    for (let i = 0; i < 4; i += 1) {
+      for (let j = 0; j < 5; j += 1) {
+        lats.push((b.getSouth() + ((i + 0.5) / 4) * (b.getNorth() - b.getSouth())).toFixed(3));
+        lons.push((b.getWest() + ((j + 0.5) / 5) * (b.getEast() - b.getWest())).toFixed(3));
+      }
+    }
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(",")}&longitude=${lons.join(",")}&current=wind_speed_250hPa,wind_direction_250hPa&wind_speed_unit=kn&forecast_days=1`;
+      const res = await fetch(url);
+      const payload = await res.json();
+      const rows = Array.isArray(payload) ? payload : [payload];
+      windLayer = window.L.layerGroup().addTo(map);
+      rows.forEach((station) => {
+        const lat = Number(station.latitude);
+        const lon = Number(station.longitude);
+        const from = Number(station.current?.wind_direction_250hPa);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(from)) return;
+        const to = (from + 180) % 360;
+        window.L.marker([lat, lon], {
+          icon: window.L.divIcon({
+            className: "mfc-wind",
+            html: `<div style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:12px solid #334155;transform:rotate(${to}deg)"></div>`,
+            iconSize: [8, 12],
+          }),
+          interactive: false,
+        }).addTo(windLayer);
+      });
+    } catch (_e) { /* ignore */ }
+  };
+
+  const apply = () => {
+    if (state.precipitation) void startRadar(); else stopRadar();
+    if (state.thunderstorms) startStorms(); else stopStorms();
+    if (state.winds) void startWind(); else stopWind();
+  };
+
+  wrap.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = btn.getAttribute("data-k");
+      state[key] = !state[key];
+      btn.classList.toggle("on", state[key]);
+      mfcSaveWeather(state);
+      apply();
+    });
+  });
+  apply();
 }
 
 class MyFlightBaseCard extends HTMLElement {
@@ -334,14 +584,14 @@ class MyFlightBaseCard extends HTMLElement {
     this._renderShell("myFlight", `<p class="mfc-empty">No status data. Edit this card and pick the myFlight Status sensor.</p>`);
   }
 
-  _renderShell(title, body, { map = null, subtitle = "" } = {}) {
+  _renderShell(title, body, { map = null, subtitle = "", icon = false } = {}) {
     const dark = mfcIsDark(this._hass);
     this.shadowRoot.innerHTML = `
       <style>${mfcStyles(dark, this._config.theme)}</style>
       <div class="mfc">
         <div class="mfc-h">
           <div>
-            <h2 class="mfc-title">${mfcEsc(title)}</h2>
+            <h2 class="mfc-title">${icon ? mfcIconPlane("currentColor") : ""}${mfcEsc(title)}</h2>
             ${subtitle ? `<div class="mfc-sub">${mfcEsc(subtitle)}</div>` : ""}
           </div>
         </div>
@@ -349,7 +599,7 @@ class MyFlightBaseCard extends HTMLElement {
         ${map ? `<div class="mfc-map" id="mfc-map"></div>` : ""}
       </div>
     `;
-    if (map) mfcMountMap(this.shadowRoot.getElementById("mfc-map"), map);
+    if (map) mfcMountMap(this.shadowRoot.getElementById("mfc-map"), map, mfcWeatherPrefs(this._config));
   }
 }
 
@@ -376,7 +626,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
       <p class="mfc-muted">Report ${mfcEsc(mfcClock(duty.report_time || duty.check_in))} · Debrief ${mfcEsc(mfcClock(duty.debrief_time || duty.check_out))}</p>
       ${legs ? `<ul class="mfc-list">${legs}</ul>` : ""}
       ${pending}
-    `, { subtitle: a.profile?.display_name || "" });
+    `, { subtitle: mfcWho(a), icon: true });
   }
 }
 
@@ -397,13 +647,13 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       .slice(0, 8)
       .map((m) => `<li>${mfcEsc(m.rank || "")} ${mfcEsc(m.name)}${m.checked_in ? " ✓" : ""}</li>`)
       .join("");
-    const progress = mfcProgressFromLeg(leg, { ...leg, progress: mission?.progress });
-    this._renderShell("Your mission", `
+    const progress = mfcProgressFromLeg(leg, { ...leg, ...(mission || {}), progress: mission?.progress, times: mission?.times });
+    this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date))}</span></p>
       ${mfcProgress(progress)}
       ${crew ? `<ul class="mfc-list">${crew}</ul>` : ""}
-    `, { map: mission?.map, subtitle: duty?.duty_text || "" });
+    `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true });
   }
 }
 
@@ -414,8 +664,17 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
     if (!snap.ok) { this._renderMissing(); return; }
     const a = snap.attrs;
     const track = a.flight_track;
+    const wanted = (this._config.registration || "").trim().toUpperCase();
+    const current = (track?.registration || "").toUpperCase();
+    if (wanted && this._hass?.callService && wanted !== current && this._pushedTrack !== wanted) {
+      this._pushedTrack = wanted;
+      this._hass.callService("myflight", "set_track", {
+        entity_id: snap.entity,
+        registration: wanted,
+      });
+    }
     if (!track?.registration) {
-      this._renderShell("Live flight track", `<p class="mfc-empty">No aircraft selected. Set a tail in the myFlight integration or on the home card.</p>`);
+      this._renderShell(mfcTitled("Live flight track", a), `<p class="mfc-empty">Enter a tail in the card editor (or integration options).</p>`, { icon: true });
       return;
     }
     const pos = track.tracking?.position;
@@ -423,17 +682,20 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
       departure: track.tracking?.route_departure,
       arrival: track.tracking?.route_arrival,
       progress: track.progress,
-      leftTime: null,
-      rightTime: null,
+      times: track.times,
+      depDelayText: track.network?.departure_delay_text,
+      depDelayTone: track.network?.departure_delay_tone,
+      arrDelayText: track.network?.arrival_delay_text,
+      arrDelayTone: track.network?.arrival_delay_tone,
     };
     const alt = pos?.altitude_ft != null ? `${pos.altitude_ft} ft` : "";
     const gs = pos?.ground_speed_kt != null ? `${Math.round(pos.ground_speed_kt)} kt` : "";
-    this._renderShell("Live flight track", `
+    this._renderShell(mfcTitled("Live flight track", a), `
       <p class="mfc-stat"><strong>${mfcEsc(track.registration)}</strong>
         <span class="mfc-muted">${mfcEsc([alt, gs].filter(Boolean).join(" · "))}</span></p>
       ${mfcProgress(route.departure ? route : null)}
-      ${track.tracking?.found ? "" : `<p class="mfc-muted">${mfcEsc(track.tracking?.message || "No live ADS-B")}</p>`}
-    `, { map: track.map, subtitle: pos?.on_ground ? "On ground" : "En route" });
+      ${track.tracking?.found ? "" : `<p class="mfc-muted">${mfcEsc(track.tracking?.message || "No live position")}</p>`}
+    `, { map: track.map, subtitle: pos?.on_ground ? "On ground" : "En route", icon: true });
   }
 }
 
@@ -453,15 +715,19 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
       return;
     }
     const cells = [
-      ["Total", stats.total],
-      ["On time", stats.on_time],
-      ["Delayed", stats.delayed],
-      ["Cancelled", stats.cancelled],
-      ["Punctual", stats.punctuality_percent != null ? `${stats.punctuality_percent}%` : "—"],
+      ["Delayed", stats.delayed, "late"],
+      ["Cancelled", stats.cancelled, stats.cancelled > 0 ? "cancel" : ""],
+      ["On time", stats.on_time, "ok"],
+      ["Early", stats.early, "early"],
+      ["Avg delay", stats.average_delay_text || "—", stats.average_delay_minutes != null ? "late" : ""],
+      ["Max delay", stats.max_delay_text || "—", ""],
     ];
+    const heading = `${stats.total ?? 0} flight${stats.total === 1 ? "" : "s"}${
+      stats.punctuality_percent != null ? ` · ${stats.punctuality_percent}% punctual` : ""
+    }`;
     this._renderShell("Airport departures", `
-      <div class="mfc-grid">${cells.map(([l, v]) => `<div class="mfc-cell"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}</div>
-    `, { subtitle: `${stats.airport} · ${stats.date || ""}` });
+      <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}</div>
+    `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true });
   }
 }
 
@@ -502,10 +768,10 @@ class MyFlightPartnerFlightCard extends MyFlightBaseCard {
       return;
     }
     const net = live.network || {};
-    const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress });
+    const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
     this._renderShell(`${live.partner_label || "Partner"} · Live flight`, `
       ${mfcProgress(progress)}
-    `, { map: live.map, subtitle: live.status.replace("_", " ") });
+    `, { map: live.map, subtitle: (live.status || "").replace("_", " "), icon: true });
   }
 }
 
@@ -522,10 +788,112 @@ class MyFlightPartnerAccountsCard extends MyFlightBaseCard {
     }
     const configured = accounts.filter((x) => x.configured).length;
     const rows = accounts.map((acc) => `<li><strong>${mfcEsc(acc.label)}</strong> <span class="mfc-muted">${acc.configured ? "connected" : "not configured"}${acc.last_error ? " · sync error" : ""}</span></li>`).join("");
-    this._renderShell("Partner accounts", `
+    this._renderShell(mfcTitled("Partner accounts", a), `
       <p class="mfc-muted">${configured} of ${accounts.length} connected</p>
       <ul class="mfc-list">${rows}</ul>
     `);
+  }
+}
+
+class MyFlightPartnerBadgeCard extends MyFlightBaseCard {
+  getCardSize() { return 1; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const live = a.partner_flight;
+    const title = `${live?.partner_label || "Partner"} · Live`;
+    if (!live || live.configured === false || !live.status) {
+      this._renderShell(title, `<p class="mfc-empty">No live sector.</p>`, { icon: true });
+      return;
+    }
+    const net = live.network || {};
+    const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
+    this._renderShell(title, mfcProgress(progress), { subtitle: (live.status || "").replace("_", " "), icon: true });
+  }
+}
+
+class MyFlightRosterCard extends MyFlightBaseCard {
+  getCardSize() { return 6; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const month = a.roster_month;
+    if (!month?.year) {
+      this._renderShell(mfcTitled("Roster", a), `<p class="mfc-empty">No roster loaded.</p>`);
+      return;
+    }
+    const weekStart = this._config.week_start === "sunday" ? "sunday" : "monday";
+    const labels = weekStart === "monday"
+      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+      : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const first = new Date(month.year, month.month - 1, 1);
+    const pad = weekStart === "monday" ? (first.getDay() + 6) % 7 : first.getDay();
+    const last = new Date(month.year, month.month, 0).getDate();
+    const byDate = {};
+    (month.days || []).forEach((d) => { byDate[d.date] = d; });
+    const weekend = weekStart === "monday" ? [5, 6] : [0, 6];
+    const cells = [];
+    for (let i = 0; i < pad; i += 1) cells.push(`<div class="mfc-cal-d empty"></div>`);
+    for (let day = 1; day <= last; day += 1) {
+      const iso = `${month.year}-${String(month.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const row = byDate[iso];
+      const col = (pad + day - 1) % 7;
+      const cat = row?.category || "unknown";
+      const color = MFC_CAT_COLOR[cat] || MFC_CAT_COLOR.unknown;
+      const bg = row ? (MFC_CAT_BG[cat] || MFC_CAT_BG.unknown) : "";
+      const style = row ? `style="background:${bg};border-color:${color};color:${color}"` : "";
+      cells.push(`<div class="mfc-cal-d${weekend.includes(col) ? " weekend" : ""}" ${style}><span class="num">${day}</span>${row ? mfcEsc(row.text || row.code || "") : ""}</div>`);
+    }
+    const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    this._renderShell(mfcTitled("Roster", a), `
+      <div class="mfc-cal">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
+    `, { subtitle: titleDate, icon: true });
+  }
+}
+
+class MyFlightAirportBoardCard extends MyFlightBaseCard {
+  getCardSize() { return 6; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const stats = a.airport_stats;
+    const wanted = (this._config.airport || "").trim().toUpperCase();
+    if (wanted && this._hass?.callService && wanted !== (stats?.airport || "") && this._pushedAirport !== wanted) {
+      this._pushedAirport = wanted;
+      this._hass.callService("myflight", "set_airport", {
+        entity_id: snap.entity,
+        airport: wanted,
+      });
+    }
+    if (!stats?.airport) {
+      this._renderShell("Airport board", `<p class="mfc-empty">No airport yet. Default is your base.</p>`, { icon: true });
+      return;
+    }
+    const flights = stats.flights || [];
+    const rows = flights.map((f) => {
+      const tone = f.cancelled ? "cancel" : (f.delay_tone || "");
+      return `<tr class="${tone}">
+        <td><strong>${mfcEsc(f.flight_number)}</strong></td>
+        <td>${mfcEsc(f.destination)}${f.destination_name ? ` <span class="mfc-muted">${mfcEsc(f.destination_name)}</span>` : ""}</td>
+        <td>${mfcEsc(mfcClock(f.std))}</td>
+        <td>${mfcEsc(mfcClock(f.atd || f.etd))}</td>
+        <td class="${tone}">${f.cancelled ? "CNL" : mfcEsc(f.delay_text || "—")}</td>
+        <td>${mfcEsc(f.gate || "")}</td>
+        <td>${mfcEsc(f.registration || "")}</td>
+      </tr>`;
+    }).join("");
+    this._renderShell(`${stats.airport} departures`, `
+      <p class="mfc-muted">${flights.length} flights · ${stats.date || ""}</p>
+      <div style="overflow:auto;max-height:360px">
+        <table class="mfc-board">
+          <thead><tr><th>Flt</th><th>To</th><th>STD</th><th>ETD</th><th>Delay</th><th>Gate</th><th>Acft</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" class="mfc-muted">No rows</td></tr>`}</tbody>
+        </table>
+      </div>
+    `, { icon: true });
   }
 }
 
@@ -534,8 +902,11 @@ const MFC_CARD_TYPES = [
   ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
   ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Location", "Pinned location day stats"],
+  ["myflight-airport-board-card", MyFlightAirportBoardCard, "myFlight Board", "Day list for a location"],
+  ["myflight-roster-card", MyFlightRosterCard, "myFlight Calendar", "Month calendar"],
   ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Count", "Active count"],
   ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner live", "Partner live with map"],
+  ["myflight-partner-badge-card", MyFlightPartnerBadgeCard, "myFlight Partner badge", "Partner progress, no map"],
   ["myflight-partner-accounts-card", MyFlightPartnerAccountsCard, "myFlight Partner accounts", "Partner connection status"],
 ];
 
@@ -561,18 +932,44 @@ class MyFlightCardEditor extends HTMLElement {
     this._rendered = true;
     const entity = this._config.entity || "";
     const theme = this._config.theme || "brand";
+    const type = String(this._config.type || "");
     const snapshots = mfcSnapshotIds(this._hass);
     const options = snapshots.length
-      ? snapshots.map((id) => `<option value="${mfcEsc(id)}" ${id === entity ? "selected" : ""}>${mfcEsc(id)}</option>`).join("")
+      ? snapshots.map((id) => {
+        const who = mfcWho(this._hass?.states?.[id]?.attributes);
+        const label = who ? `${id} · ${who}` : id;
+        return `<option value="${mfcEsc(id)}" ${id === entity ? "selected" : ""}>${mfcEsc(label)}</option>`;
+      }).join("")
       : `<option value="${mfcEsc(entity)}" selected>${mfcEsc(entity || "sensor.myflight_status")}</option>`;
+    const extra = [];
+    if (type.includes("flight-track")) {
+      extra.push(`<label>Tail to follow
+        <input class="reg" type="text" value="${mfcEsc(this._config.registration || "")}" placeholder="HA-LZT" style="width:100%">
+      </label>`);
+    }
+    if (type.includes("airport-board") || type.includes("airport-stats")) {
+      extra.push(`<label>Airport (blank = base)
+        <input class="apt" type="text" maxlength="3" value="${mfcEsc(this._config.airport || "")}" placeholder="BUD" style="width:100%">
+      </label>`);
+    }
+    if (type.includes("roster")) {
+      const week = this._config.week_start === "sunday" ? "sunday" : "monday";
+      extra.push(`<label>Week starts
+        <select class="wk" style="width:100%">
+          <option value="monday" ${week === "monday" ? "selected" : ""}>Monday</option>
+          <option value="sunday" ${week === "sunday" ? "selected" : ""}>Sunday</option>
+        </select>
+      </label>`);
+    }
     this.innerHTML = `
       <div style="display:grid;gap:10px;padding:4px 0">
-        <label>Entity
+        <label>Account (Status sensor)
           <select class="ent" style="width:100%">
             ${entity && !snapshots.includes(entity) ? `<option value="${mfcEsc(entity)}" selected>${mfcEsc(entity)}</option>` : ""}
             ${options}
           </select>
         </label>
+        ${extra.join("")}
         <label>Theme
           <select class="thm">
             <option value="brand" ${theme === "brand" ? "selected" : ""}>myFlight brand</option>
@@ -583,6 +980,12 @@ class MyFlightCardEditor extends HTMLElement {
     `;
     this.querySelector(".ent").onchange = (e) => this._set("entity", e.target.value.trim());
     this.querySelector(".thm").onchange = (e) => this._set("theme", e.target.value);
+    const reg = this.querySelector(".reg");
+    if (reg) reg.onchange = (e) => this._set("registration", e.target.value.trim().toUpperCase());
+    const apt = this.querySelector(".apt");
+    if (apt) apt.onchange = (e) => this._set("airport", e.target.value.trim().toUpperCase());
+    const wk = this.querySelector(".wk");
+    if (wk) wk.onchange = (e) => this._set("week_start", e.target.value);
   }
 }
 
