@@ -1,5 +1,5 @@
 /**
- * myFlight Lovelace cards — Home dashboard tiles + Leaflet maps.
+ * myFlight Lovelace cards.
  */
 const MFC_VERSION = "0.1.1";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
@@ -483,12 +483,12 @@ class MyFlightPartnerAccountsCard extends MyFlightBaseCard {
 }
 
 const MFC_CARD_TYPES = [
-  ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next duty", "Next scheduled item"],
-  ["myflight-mission-card", MyFlightMissionCard, "myFlight Mission", "Current assignment with map"],
-  ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked aircraft with map"],
-  ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Airport", "Pinned airport day stats"],
-  ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Fleet", "Airborne aircraft count"],
-  ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner flight", "Partner live sector with map"],
+  ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next", "Next scheduled item"],
+  ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
+  ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
+  ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Location", "Pinned location day stats"],
+  ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Count", "Active count"],
+  ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner live", "Partner live with map"],
   ["myflight-partner-accounts-card", MyFlightPartnerAccountsCard, "myFlight Partner accounts", "Partner connection status"],
 ];
 
