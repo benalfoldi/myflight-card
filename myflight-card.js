@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.3";
+const MFC_VERSION = "0.2.4";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -143,19 +143,29 @@ function mfcIsActivityCode(token) {
   return /^[A-Z][A-Z0-9]{1,5}$/i.test(token) && !String(token).includes("-");
 }
 
-function mfcShortDutyLabel(row) {
+function mfcShortDutyLabel(row, compact) {
   const code = String(row?.code || "").replace(/[\r\n]/g, " ").trim();
   const text = String(row?.text || "").replace(/[\r\n]/g, " ").trim();
   const blob = `${code} ${text}`.toUpperCase();
   const route = blob.match(/\b([A-Z]{3}(?:-[A-Z]{3})+)\b/);
   if (route) {
     const flight = blob.match(/\b(\d{3,5})\b/);
-    return flight ? `${flight[1]} ${route[1]}` : route[1];
+    if (compact) return route[1];
+    return flight ? `${flight[1]}\n${route[1]}` : route[1];
   }
   const tokens = (code || text).split(/[\s/·]+/).filter(Boolean).map((t) => t.toUpperCase());
   if (tokens.length && tokens.every((t) => mfcIsActivityCode(t))) return tokens.join(" ");
   const first = tokens.find((t) => mfcIsActivityCode(t));
   return first || tokens[0] || "";
+}
+
+function mfcCalLabelHtml(label) {
+  return mfcEsc(label).replace(/\n/g, "<br>").replace(/-/g, "-<wbr>");
+}
+
+function mfcLocalIsoDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function mfcRemainingMins(times) {
@@ -277,6 +287,9 @@ function mfcStyles(dark, theme) {
     .mfc-chip.late { color: #dc2626; border-color: rgba(220,38,38,.35); }
     .mfc-chip.early { color: #16a34a; border-color: rgba(22,163,74,.35); }
     .mfc-chip.ontime, .mfc-chip.on-time { color: ${magenta}; }
+    .mfc-chip.tight { color: #991b1b; border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.12); }
+    .mfc-chip.ok { color: #166534; border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.12); }
+    .mfc-chip.long, .mfc-chip.unknown { color: ${muted}; }
     .mfc-error { color: #dc2626; font-size: 0.88rem; }
     .mfc-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
@@ -326,19 +339,22 @@ function mfcStyles(dark, theme) {
     .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 8px; }
     .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
     .mfc-cal-d {
-      height: 52px; min-height: 52px; max-height: 52px; box-sizing: border-box;
-      overflow: hidden; border-radius: 8px; padding: 4px; font-size: 0.68rem; line-height: 1.2;
+      height: 64px; min-height: 64px; max-height: 64px; box-sizing: border-box;
+      overflow: hidden; border-radius: 8px; padding: 3px 4px; font-size: 0.62rem; line-height: 1.15;
       border: 1px solid ${border}; background: ${bg};
+      display: flex; flex-direction: column;
     }
-    .mfc-cal-d .num { font-weight: 700; display: block; margin-bottom: 2px; }
+    .mfc-cal-d .num { font-weight: 700; display: block; margin-bottom: 1px; flex: 0 0 auto; }
     .mfc-cal-d .lbl {
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-      overflow: hidden; word-break: break-word;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+      overflow: hidden; overflow-wrap: anywhere; word-break: break-word; min-height: 0;
     }
     .mfc-cal--codes .mfc-cal-d .lbl {
-      display: block; white-space: nowrap; text-overflow: ellipsis; word-break: normal;
-      -webkit-line-clamp: unset;
+      white-space: normal; text-overflow: unset; font-size: 0.58rem; line-height: 1.12;
+      -webkit-line-clamp: 4;
     }
+    .mfc-cal-d.today { box-shadow: inset 0 0 0 2px ${magenta}; opacity: 1; }
+    .mfc-cal-d.today .num { color: ${magenta}; }
     .mfc.compact { padding: 8px 10px; }
     .mfc.compact .mfc-h { margin-bottom: 4px; gap: 6px; }
     .mfc.compact .mfc-title { font-size: 0.92rem; }
@@ -346,9 +362,10 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-cal { gap: 2px; margin-top: 4px; }
     .mfc.compact .mfc-cal-h { font-size: 0.6rem; padding: 0; }
     .mfc.compact .mfc-cal-d {
-      height: 36px; min-height: 36px; max-height: 36px; padding: 2px 3px; font-size: 0.58rem; border-radius: 6px;
+      height: 44px; min-height: 44px; max-height: 44px; padding: 2px 3px; font-size: 0.58rem; border-radius: 6px;
     }
     .mfc.compact .mfc-cal-d .num { margin-bottom: 0; font-size: 0.62rem; }
+    .mfc.compact .mfc-cal--codes .mfc-cal-d .lbl { -webkit-line-clamp: 2; font-size: 0.52rem; }
     .mfc-sector { margin-top: 8px; }
     .mfc-sector-k {
       display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
@@ -424,6 +441,12 @@ function mfcNeighbor(title, net, side) {
       <span class="mfc-muted">${mfcEsc(mfcNetClock(net, side))}</span></span>
     ${chips ? `<div class="mfc-chips">${chips}</div>` : ""}
   </div>`;
+}
+
+function mfcTurnaround(ta) {
+  if (!ta || !ta.text) return "";
+  const label = ta.label || "Turnaround";
+  return `<div class="mfc-chips"><span class="mfc-chip ${mfcEsc(ta.tone || "long")}">${mfcEsc(label)} · ${mfcEsc(ta.text)}</span></div>`;
 }
 
 let mfcLeafletPromise = null;
@@ -509,6 +532,50 @@ function mfcKm(a, b) {
   return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(hav)));
 }
 
+function mfcPointFraction(pt, origin, dest, routeKm) {
+  const fromDep = mfcKm(pt, origin);
+  const fromArr = mfcKm(pt, dest);
+  if (fromDep + fromArr > routeKm + 180) return null;
+  if (routeKm < 1) return fromDep <= 80 ? 0 : 1;
+  return fromDep / routeKm;
+}
+
+function mfcFilterTrailToSector(points, dep, arr) {
+  if (!dep || !arr || dep.lat == null || arr.lat == null || !points.length) return points;
+  const origin = [dep.lat, dep.lon];
+  const dest = [arr.lat, arr.lon];
+  const routeKm = mfcKm(origin, dest);
+  let lastNear = -1;
+  for (let i = 0; i < points.length; i += 1) {
+    if (mfcKm(points[i], origin) <= 80) lastNear = i;
+  }
+  let sliced = points;
+  if (lastNear >= 0) {
+    let start = lastNear;
+    while (start > 0 && mfcKm(points[start - 1], origin) <= 80) start -= 1;
+    sliced = points.slice(start);
+  }
+  if (!sliced.length) return sliced;
+  const last = sliced[sliced.length - 1];
+  const aircraftT = mfcPointFraction(last, origin, dest, routeKm) ?? 1;
+  const filtered = sliced.filter((pt) => {
+    const fraction = mfcPointFraction(pt, origin, dest, routeKm);
+    return fraction != null && fraction <= aircraftT + 0.12;
+  });
+  return filtered.length ? filtered : sliced.slice(-8);
+}
+
+function mfcShouldFillFromDep(origin, first, dest) {
+  const gap = mfcKm(origin, first);
+  if (gap <= 2) return false;
+  if (!dest) return true;
+  const fromArr = mfcKm(first, dest);
+  const routeKm = mfcKm(origin, dest);
+  const onCorridor = gap + fromArr <= routeKm + 180;
+  const closerToDep = gap <= fromArr || gap <= 80;
+  return onCorridor && closerToDep;
+}
+
 function mfcTeardownMap(host) {
   if (!host) return;
   if (host._mfcWxStop) {
@@ -578,15 +645,17 @@ function mfcSyncMapLayers(L, map, host, data) {
   let trailLatLngs = (Array.isArray(data.trail) ? data.trail : [])
     .filter((p) => p && p.latitude != null && p.longitude != null)
     .map((p) => [p.latitude, p.longitude]);
-  if (dep?.lat != null && trailLatLngs.length) {
-    const origin = [dep.lat, dep.lon];
+  trailLatLngs = mfcFilterTrailToSector(trailLatLngs, dep, arr);
+  const origin = dep?.lat != null ? [dep.lat, dep.lon] : null;
+  const dest = arr?.lat != null ? [arr.lat, arr.lon] : null;
+  if (origin && trailLatLngs.length && mfcShouldFillFromDep(origin, trailLatLngs[0], dest)) {
     if (mfcKm(origin, trailLatLngs[0]) > 25) {
       trailLatLngs = mfcGeodesic(origin, trailLatLngs[0], 10).slice(0, -1).concat(trailLatLngs);
-    } else if (mfcKm(origin, trailLatLngs[0]) > 2) {
+    } else {
       trailLatLngs = [origin, ...trailLatLngs];
     }
-  } else if (dep?.lat != null && here && trailLatLngs.length < 2) {
-    trailLatLngs = mfcGeodesic([dep.lat, dep.lon], here, 16);
+  } else if (origin && here && trailLatLngs.length < 2 && mfcShouldFillFromDep(origin, here, dest)) {
+    trailLatLngs = mfcGeodesic(origin, here, 16);
   }
   if (here && trailLatLngs.length) {
     const last = trailLatLngs[trailLatLngs.length - 1];
@@ -1033,8 +1102,11 @@ class MyFlightMissionCard extends MyFlightBaseCard {
         <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date))}</span></p>
       ${checkIn ? `<p class="mfc-muted" style="margin:4px 0 0">Check-in ${mfcEsc(mfcClock(checkIn))}</p>` : ""}
       ${mfcNeighbor("Coming from", mission?.previous, "arr")}
+      ${mfcTurnaround(mission?.turnaround_before)}
+      ${(mission?.turnaround_sectors || []).map(mfcTurnaround).join("")}
       ${mfcProgress(progress)}
       ${mfcNeighbor("Then", mission?.next, "dep")}
+      ${mfcTurnaround(mission?.turnaround_after)}
       ${crew ? `<ul class="mfc-list">${crew}</ul>` : ""}
     `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true });
   }
@@ -1219,6 +1291,7 @@ class MyFlightRosterCard extends MyFlightBaseCard {
     const byDate = {};
     (month.days || []).forEach((d) => { byDate[d.date] = d; });
     const weekend = weekStart === "monday" ? [5, 6] : [0, 6];
+    const todayIso = mfcLocalIsoDate();
     const cells = [];
     for (let i = 0; i < pad; i += 1) cells.push(`<div class="mfc-cal-d empty"></div>`);
     for (let day = 1; day <= last; day += 1) {
@@ -1230,8 +1303,10 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       const bg = row ? (MFC_CAT_BG[cat] || MFC_CAT_BG.unknown) : "";
       const style = row ? `style="background:${bg};border-color:${color};color:${color}"` : "";
       const full = row ? (row.text || row.code || "") : "";
-      const label = !row ? "" : (details ? full : mfcShortDutyLabel(row));
-      cells.push(`<div class="mfc-cal-d${weekend.includes(col) ? " weekend" : ""}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcEsc(label)}</span>` : ""}</div>`);
+      const label = !row ? "" : (details ? full : mfcShortDutyLabel(row, compact));
+      const today = iso === todayIso ? " today" : "";
+      const weekendCls = weekend.includes(col) ? " weekend" : "";
+      cells.push(`<div class="mfc-cal-d${weekendCls}${today}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
     }
     const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     this._renderShell(mfcTitled("Roster", a), `
