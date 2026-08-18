@@ -1,19 +1,45 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.1.1";
+const MFC_VERSION = "0.1.2";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
 
-function mfcPickDefaultEntity(hass, pool) {
+function mfcIsSnapshot(attrs) {
+  if (!attrs || typeof attrs !== "object") return false;
+  return Boolean(
+    attrs.profile
+    || attrs.version
+    || Object.prototype.hasOwnProperty.call(attrs, "next_duty")
+    || Object.prototype.hasOwnProperty.call(attrs, "partner_flight")
+    || Object.prototype.hasOwnProperty.call(attrs, "airport_stats")
+  );
+}
+
+function mfcSnapshotIds(hass, pool) {
   const ids = [...new Set([
     ...(pool || []),
     ...(hass ? Object.keys(hass.states || {}) : []),
   ])];
-  const status = ids.find((e) => e.includes("myflight") && e.endsWith("_status"));
-  if (status) return status;
-  return ids.find((e) => e.includes("myflight")) || "sensor.myflight_status";
+  return ids.filter((id) => mfcIsSnapshot(hass?.states?.[id]?.attributes));
+}
+
+function mfcPickDefaultEntity(hass, pool) {
+  const snapshots = mfcSnapshotIds(hass, pool);
+  const preferred = snapshots.find((id) => id.includes("myflight") && id.endsWith("_status") && !id.includes("partner_status"))
+    || snapshots.find((id) => id.endsWith("myflight_status") || id === "sensor.myflight_status")
+    || snapshots[0];
+  if (preferred) return preferred;
+  return "sensor.myflight_status";
+}
+
+function mfcResolveEntity(hass, configured) {
+  const requested = (configured || "").trim();
+  if (requested && mfcIsSnapshot(hass?.states?.[requested]?.attributes)) {
+    return requested;
+  }
+  return mfcPickDefaultEntity(hass, requested ? [requested] : []);
 }
 
 function mfcIsDark(hass) {
@@ -21,10 +47,6 @@ function mfcIsDark(hass) {
     if (hass?.themes?.darkMode) return true;
   } catch (_e) { /* ignore */ }
   return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ?? false;
-}
-
-function mfcAttrs(hass, entity) {
-  return hass?.states?.[entity]?.attributes || {};
 }
 
 function mfcEsc(value) {
@@ -276,7 +298,7 @@ class MyFlightBaseCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { entity: "sensor.myflight_status", theme: "brand" };
+    return { theme: "brand" };
   }
 
   static getConfigElement() {
@@ -298,7 +320,18 @@ class MyFlightBaseCard extends HTMLElement {
   }
 
   _entity() {
-    return this._config.entity || mfcPickDefaultEntity(this._hass);
+    return mfcResolveEntity(this._hass, this._config.entity);
+  }
+
+  _snapshot() {
+    const entity = this._entity();
+    const state = this._hass?.states?.[entity];
+    const attrs = state?.attributes || {};
+    return { entity, state, attrs, ok: Boolean(state) && mfcIsSnapshot(attrs) };
+  }
+
+  _renderMissing() {
+    this._renderShell("myFlight", `<p class="mfc-empty">No status data. Edit this card and pick the myFlight Status sensor.</p>`);
   }
 
   _renderShell(title, body, { map = null, subtitle = "" } = {}) {
@@ -322,7 +355,9 @@ class MyFlightBaseCard extends HTMLElement {
 
 class MyFlightNextDutyCard extends MyFlightBaseCard {
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const duty = a.next_duty;
     const changes = a.roster_changes || [];
     if (!duty) {
@@ -348,7 +383,9 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
 class MyFlightMissionCard extends MyFlightBaseCard {
   getCardSize() { return 5; }
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const mission = a.mission;
     const duty = mission?.duty || a.next_duty;
     if (!mission && !duty) {
@@ -373,7 +410,9 @@ class MyFlightMissionCard extends MyFlightBaseCard {
 class MyFlightFlightTrackCard extends MyFlightBaseCard {
   getCardSize() { return 4; }
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const track = a.flight_track;
     if (!track?.registration) {
       this._renderShell("Live flight track", `<p class="mfc-empty">No aircraft selected. Set a tail in the myFlight integration or on the home card.</p>`);
@@ -401,10 +440,12 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
 class MyFlightAirportStatsCard extends MyFlightBaseCard {
   getCardSize() { return 2; }
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const stats = a.airport_stats;
     if (!stats?.airport) {
-      this._renderShell("Airport departures", `<p class="mfc-empty">Set an airport IATA on the myFlight integration (or use your base).</p>`);
+      this._renderShell("Airport departures", `<p class="mfc-empty">No airport in this snapshot yet.</p>`);
       return;
     }
     if (stats.error) {
@@ -426,7 +467,9 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
 
 class MyFlightLiveFleetCard extends MyFlightBaseCard {
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const fleet = a.live_fleet;
     if (!fleet) {
       this._renderShell("Live fleet", `<p class="mfc-empty">Fleet data not available.</p>`);
@@ -446,10 +489,12 @@ class MyFlightLiveFleetCard extends MyFlightBaseCard {
 class MyFlightPartnerFlightCard extends MyFlightBaseCard {
   getCardSize() { return 5; }
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const live = a.partner_flight;
     if (!live || live.configured === false) {
-      this._renderShell("Partner live flight", `<p class="mfc-empty">Partner B is not configured.</p>`);
+      this._renderShell("Partner live flight", `<p class="mfc-empty">Partner account is not connected.</p>`);
       return;
     }
     if (!live.status) {
@@ -467,7 +512,9 @@ class MyFlightPartnerFlightCard extends MyFlightBaseCard {
 class MyFlightPartnerAccountsCard extends MyFlightBaseCard {
   getCardSize() { return 2; }
   _render() {
-    const a = mfcAttrs(this._hass, this._entity());
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
     const accounts = a.partner_accounts || [];
     if (!accounts.length) {
       this._renderShell("Partner accounts", `<p class="mfc-empty">No partner accounts configured.</p>`);
@@ -499,7 +546,11 @@ class MyFlightCardEditor extends HTMLElement {
   }
   set hass(hass) {
     this._hass = hass;
-    if (!this._rendered) this._render();
+    const key = mfcSnapshotIds(hass).join("|");
+    if (!this._rendered || key !== this._snapshotKey) {
+      this._snapshotKey = key;
+      this._render();
+    }
   }
   _set(key, value) {
     this._config = { ...this._config, [key]: value };
@@ -510,10 +561,17 @@ class MyFlightCardEditor extends HTMLElement {
     this._rendered = true;
     const entity = this._config.entity || "";
     const theme = this._config.theme || "brand";
+    const snapshots = mfcSnapshotIds(this._hass);
+    const options = snapshots.length
+      ? snapshots.map((id) => `<option value="${mfcEsc(id)}" ${id === entity ? "selected" : ""}>${mfcEsc(id)}</option>`).join("")
+      : `<option value="${mfcEsc(entity)}" selected>${mfcEsc(entity || "sensor.myflight_status")}</option>`;
     this.innerHTML = `
       <div style="display:grid;gap:10px;padding:4px 0">
         <label>Entity
-          <input type="text" class="ent" value="${mfcEsc(entity)}" placeholder="sensor.myflight_status" style="width:100%">
+          <select class="ent" style="width:100%">
+            ${entity && !snapshots.includes(entity) ? `<option value="${mfcEsc(entity)}" selected>${mfcEsc(entity)}</option>` : ""}
+            ${options}
+          </select>
         </label>
         <label>Theme
           <select class="thm">
