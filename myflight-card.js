@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.2";
+const MFC_VERSION = "0.2.3";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -326,26 +326,35 @@ function mfcStyles(dark, theme) {
     .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 8px; }
     .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
     .mfc-cal-d {
-      min-height: 52px; border-radius: 8px; padding: 4px; font-size: 0.68rem; line-height: 1.2;
+      height: 52px; min-height: 52px; max-height: 52px; box-sizing: border-box;
+      overflow: hidden; border-radius: 8px; padding: 4px; font-size: 0.68rem; line-height: 1.2;
       border: 1px solid ${border}; background: ${bg};
     }
     .mfc-cal-d .num { font-weight: 700; display: block; margin-bottom: 2px; }
-    .mfc-cal-d .lbl { display: block; overflow: hidden; word-break: break-word; }
-    .mfc-cal--codes .mfc-cal-d .lbl { white-space: nowrap; text-overflow: ellipsis; word-break: normal; }
+    .mfc-cal-d .lbl {
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden; word-break: break-word;
+    }
+    .mfc-cal--codes .mfc-cal-d .lbl {
+      display: block; white-space: nowrap; text-overflow: ellipsis; word-break: normal;
+      -webkit-line-clamp: unset;
+    }
     .mfc.compact { padding: 8px 10px; }
     .mfc.compact .mfc-h { margin-bottom: 4px; gap: 6px; }
     .mfc.compact .mfc-title { font-size: 0.92rem; }
     .mfc.compact .mfc-sub { font-size: 0.72rem; }
-    .mfc.compact .mfc-toggle button { padding: 4px 8px; min-height: 28px; font-size: 0.68rem; }
     .mfc.compact .mfc-cal { gap: 2px; margin-top: 4px; }
     .mfc.compact .mfc-cal-h { font-size: 0.6rem; padding: 0; }
     .mfc.compact .mfc-cal-d {
-      min-height: 28px; padding: 2px 3px; font-size: 0.58rem; line-height: 1.15; border-radius: 6px;
+      height: 36px; min-height: 36px; max-height: 36px; padding: 2px 3px; font-size: 0.58rem; border-radius: 6px;
     }
     .mfc.compact .mfc-cal-d .num { margin-bottom: 0; font-size: 0.62rem; }
-    .mfc.compact .mfc-cal--details .mfc-cal-d .lbl {
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal;
+    .mfc-sector { margin-top: 8px; }
+    .mfc-sector-k {
+      display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; color: ${muted}; margin-bottom: 2px;
     }
+    .mfc-sector-v { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 0.88rem; }
     .mfc-cal-d.empty { background: transparent; border-color: transparent; }
     .mfc-cal-d.weekend { opacity: .85; }
     .mfc-badge { padding: 10px 12px; }
@@ -381,6 +390,40 @@ function mfcProgress(display) {
     ${eta ? `<p class="mfc-eta" data-eta-at="${mfcEsc(times.eta_at || "")}" data-mins="${times.eta_in_minutes ?? ""}" data-arr-label="${mfcEsc(times.arr_label || "ETA")}">${mfcEsc(eta)}</p>` : ""}
     <div class="mfc-chips">${depChip}${arrChip}</div>
   `;
+}
+
+function mfcDelayChips(net) {
+  if (!net) return "";
+  const chips = [];
+  if (net.departure_delay_text && net.departure_delay_text !== "On time") {
+    chips.push(`<span class="mfc-chip ${mfcEsc(net.departure_delay_tone || "")}">Dep · ${mfcEsc(net.departure_delay_text)}</span>`);
+  }
+  if (net.arrival_delay_text && net.arrival_delay_text !== "On time") {
+    chips.push(`<span class="mfc-chip ${mfcEsc(net.arrival_delay_tone || "")}">Arr · ${mfcEsc(net.arrival_delay_text)}</span>`);
+  }
+  return chips.join("");
+}
+
+function mfcNetClock(net, side) {
+  if (!net) return "";
+  if (side === "arr") {
+    const label = net.arrival_is_actual && net.ata ? "ATA" : (net.eta && net.eta !== net.sta ? "ETA" : "STA");
+    return `${label} ${mfcClock(net.ata || net.eta || net.sta)}`;
+  }
+  const label = net.departure_is_actual && net.atd ? "ATD" : (net.etd && net.etd !== net.std ? "ETD" : "STD");
+  return `${label} ${mfcClock(net.atd || net.etd || net.std)}`;
+}
+
+function mfcNeighbor(title, net, side) {
+  if (!net || !net.departure) return "";
+  const num = net.flight_number ? `${mfcEsc(net.flight_number)} · ` : "";
+  const chips = mfcDelayChips(net);
+  return `<div class="mfc-sector">
+    <span class="mfc-sector-k">${mfcEsc(title)}</span>
+    <span class="mfc-sector-v"><strong>${num}${mfcEsc(net.departure)} → ${mfcEsc(net.arrival)}</strong>
+      <span class="mfc-muted">${mfcEsc(mfcNetClock(net, side))}</span></span>
+    ${chips ? `<div class="mfc-chips">${chips}</div>` : ""}
+  </div>`;
 }
 
 let mfcLeafletPromise = null;
@@ -904,67 +947,15 @@ class MyFlightBaseCard extends HTMLElement {
       mapEl.hidden = true;
       mfcTeardownMap(mapEl);
     }
-    wrap.querySelectorAll("[data-mfc-details]").forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this._setRosterDetails(btn.getAttribute("data-mfc-details") === "1");
-      });
-    });
-    wrap.querySelectorAll("[data-mfc-compact]").forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this._setRosterCompact(btn.getAttribute("data-mfc-compact") === "1");
-      });
-    });
     this._syncEtaTick();
   }
 
   _rosterDetails() {
-    if (typeof this._config.details === "boolean") return this._config.details;
-    try {
-      return localStorage.getItem(`mfc-roster-details:${this._entity()}`) === "1";
-    } catch (_e) {
-      return false;
-    }
-  }
-
-  _setRosterDetails(on) {
-    this._config = { ...this._config, details: on };
-    try {
-      localStorage.setItem(`mfc-roster-details:${this._entity()}`, on ? "1" : "0");
-    } catch (_e) { /* ignore */ }
-    this.dispatchEvent(new CustomEvent("config-changed", {
-      detail: { config: this._config },
-      bubbles: true,
-      composed: true,
-    }));
-    this._hassKey = "";
-    this._render();
+    return this._config.details === true;
   }
 
   _rosterCompact() {
-    if (typeof this._config.compact === "boolean") return this._config.compact;
-    try {
-      return localStorage.getItem(`mfc-roster-compact:${this._entity()}`) !== "0";
-    } catch (_e) {
-      return true;
-    }
-  }
-
-  _setRosterCompact(on) {
-    this._config = { ...this._config, compact: on };
-    try {
-      localStorage.setItem(`mfc-roster-compact:${this._entity()}`, on ? "1" : "0");
-    } catch (_e) { /* ignore */ }
-    this.dispatchEvent(new CustomEvent("config-changed", {
-      detail: { config: this._config },
-      bubbles: true,
-      composed: true,
-    }));
-    this._hassKey = "";
-    this._render();
+    return this._config.compact === true;
   }
 
   _syncEtaTick() {
@@ -1018,7 +1009,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
 }
 
 class MyFlightMissionCard extends MyFlightBaseCard {
-  getCardSize() { return 5; }
+  getCardSize() { return 6; }
   _render() {
     const snap = this._snapshot();
     if (!snap.ok) { this._renderMissing(); return; }
@@ -1030,15 +1021,20 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       return;
     }
     const leg = mission?.leg;
+    const net = mission?.network || {};
+    const checkIn = duty?.check_in || duty?.report_time;
     const crew = (duty?.crew || [])
       .slice(0, 8)
       .map((m) => `<li>${mfcEsc(m.rank || "")} ${mfcEsc(m.name)}${m.checked_in ? " ✓" : ""}</li>`)
       .join("");
-    const progress = mfcProgressFromLeg(leg, { ...leg, ...(mission || {}), progress: mission?.progress, times: mission?.times });
+    const progress = mfcProgressFromLeg(leg, { ...leg, ...net, progress: mission?.progress, times: mission?.times });
     this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date))}</span></p>
+      ${checkIn ? `<p class="mfc-muted" style="margin:4px 0 0">Check-in ${mfcEsc(mfcClock(checkIn))}</p>` : ""}
+      ${mfcNeighbor("Coming from", mission?.previous, "arr")}
       ${mfcProgress(progress)}
+      ${mfcNeighbor("Then", mission?.next, "dep")}
       ${crew ? `<ul class="mfc-list">${crew}</ul>` : ""}
     `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true });
   }
@@ -1238,18 +1234,9 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       cells.push(`<div class="mfc-cal-d${weekend.includes(col) ? " weekend" : ""}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcEsc(label)}</span>` : ""}</div>`);
     }
     const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    const headerExtra = `<div class="mfc-h-toggles">
-      <div class="mfc-toggle" role="group" aria-label="Duty labels">
-        <button type="button" data-mfc-details="0" class="${details ? "" : "on"}">Codes</button>
-        <button type="button" data-mfc-details="1" class="${details ? "on" : ""}">Details</button>
-      </div>
-      <div class="mfc-toggle" role="group" aria-label="Density">
-        <button type="button" data-mfc-compact="${compact ? "0" : "1"}" class="${compact ? "on" : ""}">Compact</button>
-      </div>
-    </div>`;
     this._renderShell(mfcTitled("Roster", a), `
       <div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
-    `, { subtitle: titleDate, icon: true, headerExtra, compact });
+    `, { subtitle: titleDate, icon: true, compact });
   }
 }
 
@@ -1355,6 +1342,7 @@ class MyFlightCardEditor extends HTMLElement {
     if (type.includes("roster")) {
       const week = this._config.week_start === "sunday" ? "sunday" : "monday";
       const details = this._config.details === true;
+      const compact = this._config.compact === true;
       extra.push(`<label>Week starts
         <select class="wk" style="width:100%">
           <option value="monday" ${week === "monday" ? "selected" : ""}>Monday</option>
@@ -1369,8 +1357,8 @@ class MyFlightCardEditor extends HTMLElement {
       </label>`);
       extra.push(`<label>Density
         <select class="cmp" style="width:100%">
-          <option value="compact" ${this._config.compact === false ? "" : "selected"}>Compact</option>
-          <option value="comfortable" ${this._config.compact === false ? "selected" : ""}>Comfortable</option>
+          <option value="comfortable" ${compact ? "" : "selected"}>Comfortable</option>
+          <option value="compact" ${compact ? "selected" : ""}>Compact</option>
         </select>
       </label>`);
     }
