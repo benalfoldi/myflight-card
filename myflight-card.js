@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards — Home dashboard tiles + Leaflet maps.
  */
-const MFC_VERSION = "0.1.0";
+const MFC_VERSION = "0.1.1";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -333,7 +333,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
       .map((leg) => `<li><strong>${mfcEsc(leg.flight_number)}</strong> ${mfcEsc(leg.departure)} → ${mfcEsc(leg.arrival)} <span class="mfc-muted">${mfcEsc(mfcClock(leg.std))}–${mfcEsc(mfcClock(leg.sta))}</span></li>`)
       .join("");
     const pending = changes.length
-      ? `<p class="mfc-error">${changes.length} roster change${changes.length === 1 ? "" : "s"} pending</p><ul class="mfc-list">${changes.map((c) => `<li>${mfcEsc(c.date)} · ${mfcEsc(c.new_summary || c.old_summary)}</li>`).join("")}</ul>`
+      ? `<p class="mfc-error">${changes.length} update${changes.length === 1 ? "" : "s"} pending</p><ul class="mfc-list">${changes.map((c) => `<li>${mfcEsc(c.date)} · ${mfcEsc(c.new_summary || c.old_summary)}</li>`).join("")}</ul>`
       : "";
     this._renderShell(duty.label || "Next duty", `
       <div class="mfc-sub">${mfcEsc(mfcDateLabel(duty.date))}</div>
@@ -470,7 +470,7 @@ class MyFlightPartnerAccountsCard extends MyFlightBaseCard {
     const a = mfcAttrs(this._hass, this._entity());
     const accounts = a.partner_accounts || [];
     if (!accounts.length) {
-      this._renderShell("Partner accounts", `<p class="mfc-empty">No ourRoster access for this user.</p>`);
+      this._renderShell("Partner accounts", `<p class="mfc-empty">No partner accounts configured.</p>`);
       return;
     }
     const configured = accounts.filter((x) => x.configured).length;
@@ -483,13 +483,13 @@ class MyFlightPartnerAccountsCard extends MyFlightBaseCard {
 }
 
 const MFC_CARD_TYPES = [
-  ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next duty", "Upcoming roster duty"],
-  ["myflight-mission-card", MyFlightMissionCard, "myFlight Your mission", "Duty on the assigned tail with map"],
-  ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Live flight track", "Tracked aircraft progress and map"],
-  ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Airport departures", "Delay and punctuality for a pinned airport"],
-  ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Live fleet", "Airborne Wizz Air count"],
-  ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner live flight", "Partner B sector with map"],
-  ["myflight-partner-accounts-card", MyFlightPartnerAccountsCard, "myFlight Partner accounts", "ourRoster connection status"],
+  ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next duty", "Next scheduled item"],
+  ["myflight-mission-card", MyFlightMissionCard, "myFlight Mission", "Current assignment with map"],
+  ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked aircraft with map"],
+  ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Airport", "Pinned airport day stats"],
+  ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Fleet", "Airborne aircraft count"],
+  ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner flight", "Partner live sector with map"],
+  ["myflight-partner-accounts-card", MyFlightPartnerAccountsCard, "myFlight Partner accounts", "Partner connection status"],
 ];
 
 class MyFlightCardEditor extends HTMLElement {
