@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.12";
+const MFC_VERSION = "0.2.13";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -263,11 +263,12 @@ function mfcStyles(dark, theme) {
   const early = dark ? "#4ade80" : "#16a34a";
   const late = dark ? "#f87171" : "#dc2626";
   return `
-    :host { display: flex; flex-direction: column; height: 100%; }
+    :host { display: flex; flex-direction: column; max-height: 100%; }
     ha-card {
       background: ${card};
       color: ${text};
       display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+      overflow: hidden;
     }
     .mfc-status[hidden], .mfc-sub[hidden], .mfc-map[hidden] { display: none !important; }
     .mfc {
@@ -485,8 +486,8 @@ function mfcStyles(dark, theme) {
     .mfc-fids-scroll { flex: 1; max-height: none; min-height: 0; overflow: auto; position: relative; }
     .mfc.mfc-board {
       display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+      overflow: hidden;
     }
-    .mfc.mfc-fill { min-height: calc(100dvh - 120px); }
     .mfc-board .mfc-body {
       flex: 1; min-height: 0; display: flex; flex-direction: column;
     }
@@ -1294,6 +1295,10 @@ class MyFlightBaseCard extends HTMLElement {
     }
     (this._fidsSnapTimers || []).forEach((id) => clearTimeout(id));
     this._fidsSnapTimers = [];
+    if (this._onFitResize) {
+      window.removeEventListener("resize", this._onFitResize);
+      this._onFitResize = null;
+    }
     mfcTeardownMap(this.shadowRoot?.querySelector(".mfc-map"));
     this._hassKey = "";
   }
@@ -1730,17 +1735,40 @@ class MyFlightRosterCard extends MyFlightBaseCard {
 }
 
 class MyFlightAirportBoardCard extends MyFlightBaseCard {
-  getCardSize() { return this._fillHeight() ? 12 : 8; }
+  getCardSize() { return this._fillHeight() ? 6 : 5; }
   getGridOptions() {
     return this._fillHeight()
-      ? { columns: 12, rows: 8, min_rows: 6 }
-      : { columns: 12, rows: 5, min_rows: 4 };
+      ? { columns: 12, rows: 6, min_rows: 4 }
+      : { columns: 12, rows: 4, min_rows: 3 };
   }
   _fillHeight() { return this._config.fill_height !== false; }
+  _ensureFitListener() {
+    if (this._onFitResize) return;
+    this._onFitResize = () => this._fitBoardHeight();
+    window.addEventListener("resize", this._onFitResize);
+  }
+  _fitBoardHeight() {
+    if (!this._fillHeight() || !this.isConnected) {
+      this.style.height = "";
+      this.style.maxHeight = "";
+      this.style.overflow = "";
+      return;
+    }
+    const top = this.getBoundingClientRect().top;
+    const height = Math.max(240, Math.floor(window.innerHeight - top - 8));
+    this.style.display = "flex";
+    this.style.flexDirection = "column";
+    this.style.height = `${height}px`;
+    this.style.maxHeight = `${height}px`;
+    this.style.overflow = "hidden";
+  }
   _queueFidsSnap() {
     (this._fidsSnapTimers || []).forEach((id) => clearTimeout(id));
     const root = this.shadowRoot;
-    const run = () => mfcSnapFidsToNow(root);
+    const run = () => {
+      this._fitBoardHeight();
+      mfcSnapFidsToNow(root);
+    };
     run();
     this._fidsSnapTimers = [50, 200, 600, 1200].map((ms) => setTimeout(run, ms));
   }
@@ -1766,6 +1794,7 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
       board: true,
       fill: this._fillHeight(),
     });
+    this._ensureFitListener();
     this._queueFidsSnap();
   }
 }
