@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.6";
+const MFC_VERSION = "0.2.7";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -195,6 +195,12 @@ function mfcFormatDuration(mins) {
   return `${mins}m`;
 }
 
+function mfcTimesLegend(attrs) {
+  const label = attrs?.time_display?.label;
+  if (!label) return "";
+  return `<span class="mfc-tz">${mfcEsc(`Times ${label}`)}</span>`;
+}
+
 function mfcEtaLeft(times) {
   const mins = mfcRemainingMins(times);
   if (mins == null) return "";
@@ -271,6 +277,7 @@ function mfcStyles(dark, theme) {
     .mfc-sub { color: ${muted}; font-size: 0.82rem; }
     .mfc-h-main { min-width: 0; }
     .mfc-h-extra { flex: 0 0 auto; }
+    .mfc-tz { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: ${muted}; }
     .mfc-status {
       display: inline-flex; align-items: center; margin-top: 6px;
       font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em;
@@ -1152,7 +1159,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
       <p class="mfc-muted">Report ${mfcEsc(mfcClock(duty.report_time || duty.check_in))} · Debrief ${mfcEsc(mfcClock(duty.debrief_time || duty.check_out))}</p>
       ${legs ? `<ul class="mfc-list">${legs}</ul>` : ""}
       ${pending}
-    `, { subtitle: mfcWho(a), icon: true });
+    `, { subtitle: mfcWho(a), icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1199,7 +1206,7 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep") : ""}
       ${flightDuty ? mfcTurnaroundRow([mission?.turnaround_after], true) : ""}
       ${crew}
-    `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true });
+    `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1241,7 +1248,7 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
         <span class="mfc-muted">${mfcEsc([alt, gs].filter(Boolean).join(" · "))}</span></p>
       ${mfcProgress(route.departure ? route : null)}
       ${track.tracking?.found ? "" : `<p class="mfc-muted">${mfcEsc(track.tracking?.message || "No live position")}</p>`}
-    `, { map: track.map, status: pos?.on_ground ? "on ground" : "en route", icon: true });
+    `, { map: track.map, status: pos?.on_ground ? "on ground" : "en route", icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1273,7 +1280,7 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
     }`;
     this._renderShell("Airport departures", `
       <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}</div>
-    `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true });
+    `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1317,7 +1324,7 @@ class MyFlightPartnerFlightCard extends MyFlightBaseCard {
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
     this._renderShell(`${live.partner_label || "Partner"} · Live`, `
       ${mfcProgress(progress)}
-    `, { map: live.map, status: live.status, icon: true, compact: true });
+    `, { map: live.map, status: live.status, icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1355,7 +1362,7 @@ class MyFlightPartnerBadgeCard extends MyFlightBaseCard {
     }
     const net = live.network || {};
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
-    this._renderShell(title, mfcProgress(progress), { status: live.status, icon: true, compact: true });
+    this._renderShell(title, mfcProgress(progress), { status: live.status, icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
