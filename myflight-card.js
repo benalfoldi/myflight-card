@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.11";
+const MFC_VERSION = "0.2.12";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -263,10 +263,11 @@ function mfcStyles(dark, theme) {
   const early = dark ? "#4ade80" : "#16a34a";
   const late = dark ? "#f87171" : "#dc2626";
   return `
-    :host { display: block; }
+    :host { display: flex; flex-direction: column; height: 100%; }
     ha-card {
       background: ${card};
       color: ${text};
+      display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
     }
     .mfc-status[hidden], .mfc-sub[hidden], .mfc-map[hidden] { display: none !important; }
     .mfc {
@@ -474,14 +475,24 @@ function mfcStyles(dark, theme) {
     .mfc-fids-airport { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.08em; color: #fff; }
     .mfc-fids-meta { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: ${dark ? "#8ea0c0" : "#b8c6de"}; text-transform: uppercase; }
     .mfc-fids-cols, .mfc-fids-row {
-      display: grid; grid-template-columns: 3.2rem 3rem minmax(0, 1.5fr) 3.2rem minmax(4.6rem, 0.9fr);
+      display: grid; grid-template-columns: 3.2rem 3rem minmax(0, 1.4fr) 4.4rem minmax(5.4rem, 1fr);
       gap: 6px; align-items: center;
     }
     .mfc-fids-cols {
       padding: 4px 12px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em;
       text-transform: uppercase; color: ${dark ? "#7f91b3" : "#5b6d8a"};
     }
-    .mfc-fids-scroll { max-height: 380px; overflow: auto; position: relative; }
+    .mfc-fids-scroll { flex: 1; max-height: none; min-height: 0; overflow: auto; position: relative; }
+    .mfc.mfc-board {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+    }
+    .mfc.mfc-fill { min-height: calc(100dvh - 120px); }
+    .mfc-board .mfc-body {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+    }
+    .mfc-board .mfc-fids {
+      flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 6px;
+    }
     .mfc-fids-row {
       padding: 7px 12px; font-size: 0.78rem;
       border-top: 1px solid ${dark ? "#182238" : "#d5deea"};
@@ -505,6 +516,9 @@ function mfcStyles(dark, theme) {
     .mfc-fids-row.early .mfc-fids-status { color: ${dark ? "#7dffa8" : "#15803d"}; }
     .mfc-fids-row.departed { color: ${dark ? "#6d7c96" : "#64748b"}; }
     .mfc-fids-row.departed .dest { color: ${dark ? "#9aa8c2" : "#64748b"}; }
+    .mfc-fids-row.departed.late .mfc-fids-status { color: ${dark ? "#ff5a5a" : "#dc2626"}; }
+    .mfc-fids-row.departed.late .mfc-fids-lamp { animation: mfc-fids-blink 1.05s step-end infinite; }
+    .mfc-fids-row.departed.early .mfc-fids-status { color: ${dark ? "#7dffa8" : "#15803d"}; }
     .mfc-fids-row.cancel { color: ${dark ? "#ff5a5a" : "#dc2626"}; text-decoration: line-through; }
     .mfc-fids-row.next, .mfc-fids-row.now {
       background: ${dark ? "rgba(198, 0, 126, 0.16)" : "rgba(198, 0, 126, 0.10)"};
@@ -673,18 +687,26 @@ function mfcNowClock() {
 
 function mfcFidsStatus(flight) {
   if (flight.cancelled) return { text: "CNL", cls: "cancel" };
-  if (flight.atd) return { text: "DEP", cls: "departed" };
+  const delay = flight.delay_text && flight.delay_text !== "On time" ? String(flight.delay_text) : "";
   const tone = String(flight.delay_tone || "");
-  if (tone === "late") return { text: String(flight.delay_text || "Delayed").toUpperCase(), cls: "late" };
-  if (tone === "early") return { text: String(flight.delay_text || "Early").toUpperCase(), cls: "early" };
+  if (flight.atd) {
+    const cls = ["departed"];
+    if (tone === "late") cls.push("late");
+    else if (tone === "early") cls.push("early");
+    return { text: delay ? `DEP · ${delay}` : "DEP", cls: cls.join(" ") };
+  }
+  if (tone === "late") return { text: delay.toUpperCase() || "DELAYED", cls: "late" };
+  if (tone === "early") return { text: delay.toUpperCase() || "EARLY", cls: "early" };
   return { text: "ON TIME", cls: "ontime" };
 }
 
 function mfcSnapFidsToNow(root) {
   const scroller = root?.querySelector(".mfc-fids-scroll");
   const mark = scroller?.querySelector(".mfc-fids-now-mark");
-  if (!scroller || !mark || scroller.clientHeight < 40) return false;
-  scroller.scrollTop = Math.max(0, mark.offsetTop - Math.round(scroller.clientHeight / 3));
+  if (!scroller || !mark) return false;
+  if (scroller.clientHeight < 32) return false;
+  const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  scroller.scrollTop = Math.max(0, top - Math.round(scroller.clientHeight / 3));
   return true;
 }
 
@@ -693,7 +715,7 @@ function mfcFidsSortKey(flight) {
 }
 
 function mfcFidsEffectiveMinutes(flight) {
-  return mfcClockMinutes(flight.atd || flight.etd || flight.std);
+  return mfcClockMinutes(flight.std);
 }
 
 function mfcFidsBoard(stats) {
@@ -715,11 +737,13 @@ function mfcFidsBoard(stats) {
     const extras = [flight.destination_name, flight.gate, flight.registration || flight.aircraft_type]
       .filter(Boolean)
       .join(" · ");
+    const clockLabel = flight.atd ? "ATD" : "ETD";
+    const clockValue = mfcClock(flight.atd || flight.etd);
     rows.push(`<div class="mfc-fids-row ${status.cls}${marker}">
       <span>${mfcEsc(mfcClock(flight.std))}</span>
       <span>${mfcEsc(flight.flight_number || "")}</span>
       <span class="dest">${mfcEsc(flight.destination || "")}${extras ? `<small>${mfcEsc(extras)}</small>` : ""}</span>
-      <span>${mfcEsc(mfcClock(flight.atd || flight.etd))}</span>
+      <span>${flight.atd || flight.etd ? `${clockLabel} ${mfcEsc(clockValue)}` : "—"}</span>
       <span class="mfc-fids-status"><span class="mfc-fids-lamp"></span>${mfcEsc(status.text)}</span>
     </div>`);
   });
@@ -732,7 +756,7 @@ function mfcFidsBoard(stats) {
       <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}</span>
     </div>
     <div class="mfc-fids-cols">
-      <span>STD</span><span>Flt</span><span>To</span><span>ETD</span><span>Status</span>
+      <span>STD</span><span>Flt</span><span>To</span><span>ATD</span><span>Status</span>
     </div>
     <div class="mfc-fids-scroll">${rows.join("") || `<div class="mfc-fids-row">No departures</div>`}</div>
   </div>`;
@@ -1268,6 +1292,8 @@ class MyFlightBaseCard extends HTMLElement {
       clearInterval(this._etaTimer);
       this._etaTimer = null;
     }
+    (this._fidsSnapTimers || []).forEach((id) => clearTimeout(id));
+    this._fidsSnapTimers = [];
     mfcTeardownMap(this.shadowRoot?.querySelector(".mfc-map"));
     this._hassKey = "";
   }
@@ -1291,7 +1317,7 @@ class MyFlightBaseCard extends HTMLElement {
     this._renderShell("myFlight", `<p class="mfc-empty">No status data. Edit this card and pick the myFlight Status sensor.</p>`);
   }
 
-  _renderShell(title, body, { map = null, subtitle = "", status = "", icon = false, headerExtra = "", compact = false } = {}) {
+  _renderShell(title, body, { map = null, subtitle = "", status = "", icon = false, headerExtra = "", compact = false, board = false, fill = false } = {}) {
     const dark = mfcIsDark(this._hass);
     const root = this.shadowRoot;
     const css = mfcStyles(dark, this._config.theme);
@@ -1317,6 +1343,8 @@ class MyFlightBaseCard extends HTMLElement {
       wrap = root.querySelector(".mfc");
     }
     wrap.classList.toggle("compact", Boolean(compact));
+    wrap.classList.toggle("mfc-board", Boolean(board));
+    wrap.classList.toggle("mfc-fill", Boolean(fill));
     const style = root.querySelector("style");
     if (style && style.textContent !== css) style.textContent = css;
     wrap.querySelector(".mfc-title").innerHTML = `${icon ? mfcIconPlane("currentColor") : ""}${mfcEsc(title)}`;
@@ -1702,7 +1730,20 @@ class MyFlightRosterCard extends MyFlightBaseCard {
 }
 
 class MyFlightAirportBoardCard extends MyFlightBaseCard {
-  getCardSize() { return 6; }
+  getCardSize() { return this._fillHeight() ? 12 : 8; }
+  getGridOptions() {
+    return this._fillHeight()
+      ? { columns: 12, rows: 8, min_rows: 6 }
+      : { columns: 12, rows: 5, min_rows: 4 };
+  }
+  _fillHeight() { return this._config.fill_height !== false; }
+  _queueFidsSnap() {
+    (this._fidsSnapTimers || []).forEach((id) => clearTimeout(id));
+    const root = this.shadowRoot;
+    const run = () => mfcSnapFidsToNow(root);
+    run();
+    this._fidsSnapTimers = [50, 200, 600, 1200].map((ms) => setTimeout(run, ms));
+  }
   _render() {
     const snap = this._snapshot();
     if (!snap.ok) { this._renderMissing(); return; }
@@ -1720,11 +1761,12 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
       this._renderShell("Airport board", `<p class="mfc-empty">No airport yet. Default is your base.</p>`, { icon: true });
       return;
     }
-    this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), { icon: true });
-    const root = this.shadowRoot;
-    if (!mfcSnapFidsToNow(root)) {
-      requestAnimationFrame(() => mfcSnapFidsToNow(root));
-    }
+    this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), {
+      icon: true,
+      board: true,
+      fill: this._fillHeight(),
+    });
+    this._queueFidsSnap();
   }
 }
 
@@ -1816,6 +1858,15 @@ class MyFlightCardEditor extends HTMLElement {
         <input class="apt" type="text" maxlength="3" value="${mfcEsc(this._config.airport || "")}" placeholder="BUD" style="width:100%">
       </label>`);
     }
+    if (type.includes("airport-board")) {
+      const fill = this._config.fill_height !== false;
+      extra.push(`<label>Height
+        <select class="fillh" style="width:100%">
+          <option value="full" ${fill ? "selected" : ""}>Full page</option>
+          <option value="card" ${fill ? "" : "selected"}>Card</option>
+        </select>
+      </label>`);
+    }
     if (type.includes("roster")) {
       const week = this._config.week_start === "sunday" ? "sunday" : "monday";
       const details = this._config.details === true;
@@ -1862,6 +1913,8 @@ class MyFlightCardEditor extends HTMLElement {
     if (reg) reg.onchange = (e) => this._set("registration", e.target.value.trim().toUpperCase());
     const apt = this.querySelector(".apt");
     if (apt) apt.onchange = (e) => this._set("airport", e.target.value.trim().toUpperCase());
+    const fillh = this.querySelector(".fillh");
+    if (fillh) fillh.onchange = (e) => this._set("fill_height", e.target.value === "full");
     const wk = this.querySelector(".wk");
     if (wk) wk.onchange = (e) => this._set("week_start", e.target.value);
     const det = this.querySelector(".det");
