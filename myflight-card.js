@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.4";
+const MFC_VERSION = "0.2.5";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -218,22 +218,33 @@ function mfcSaveWeather(prefs) {
 
 function mfcStyles(dark, theme) {
   const brand = theme !== "ha";
-  const navy = brand ? "#0a1f44" : "var(--primary-text-color)";
+  const navyFill = brand ? "#0a1f44" : "var(--primary-color)";
+  const navy = brand
+    ? (dark ? "var(--primary-text-color, #f1f5f9)" : "#0a1f44")
+    : "var(--primary-text-color)";
   const magenta = brand ? "#c6007e" : "var(--primary-color)";
-  const card = dark ? "#1e293b" : "#ffffff";
-  const text = dark ? "#f1f5f9" : "#0f172a";
-  const muted = dark ? "#94a3b8" : "#64748b";
-  const border = dark ? "#334155" : "#e2e8f0";
-  const bg = dark ? "#0b1220" : "#f8fafc";
+  const card = "var(--ha-card-background, var(--card-background-color, var(--primary-background-color, #fff)))";
+  const text = "var(--primary-text-color, #0f172a)";
+  const muted = "var(--secondary-text-color, #64748b)";
+  const border = "var(--ha-card-border-color, var(--divider-color, #e2e8f0))";
+  const bg = "color-mix(in srgb, var(--primary-text-color) 8%, transparent)";
+  const ok = dark ? "#86efac" : "#166534";
+  const tight = dark ? "#fca5a5" : "#991b1b";
+  const early = dark ? "#4ade80" : "#16a34a";
+  const late = dark ? "#f87171" : "#dc2626";
   return `
     :host { display: block; }
+    ha-card {
+      background: ${card};
+      color: ${text};
+    }
     .mfc-status[hidden], .mfc-sub[hidden], .mfc-map[hidden] { display: none !important; }
     .mfc {
       font-family: Inter, system-ui, -apple-system, sans-serif;
-      background: ${card};
+      background: transparent;
       color: ${text};
-      border-radius: 16px;
-      border: 1px solid ${border};
+      border: 0;
+      border-radius: 0;
       padding: 14px 16px;
       box-sizing: border-box;
     }
@@ -259,11 +270,11 @@ function mfcStyles(dark, theme) {
       border: 1px solid rgba(198, 0, 126, 0.45);
     }
     .mfc-status.preflight {
-      background: rgba(10, 31, 68, 0.1); color: ${navy};
-      border-color: rgba(10, 31, 68, 0.3);
+      background: color-mix(in srgb, ${navyFill} 14%, transparent); color: ${navy};
+      border-color: color-mix(in srgb, ${navyFill} 35%, transparent);
     }
     .mfc-status.landed {
-      background: rgba(13, 148, 136, 0.14); color: #0d9488;
+      background: rgba(13, 148, 136, 0.14); color: ${dark ? "#5eead4" : "#0d9488"};
       border-color: rgba(13, 148, 136, 0.4);
     }
     .mfc-eta { margin: 8px 0 0; font-size: 0.92rem; font-weight: 700; color: ${navy}; }
@@ -272,7 +283,7 @@ function mfcStyles(dark, theme) {
       font: inherit; font-size: 0.72rem; font-weight: 700; padding: 6px 10px;
       min-height: 32px; border: 0; background: ${bg}; color: ${muted}; cursor: pointer;
     }
-    .mfc-toggle button.on { background: ${navy}; color: #fff; }
+    .mfc-toggle button.on { background: ${navyFill}; color: #fff; }
     .mfc-h-toggles { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
     .mfc-muted { color: ${muted}; font-size: 0.88rem; }
     .mfc-empty { margin: 0; color: ${muted}; }
@@ -284,11 +295,11 @@ function mfcStyles(dark, theme) {
       font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 999px;
       background: ${bg}; border: 1px solid ${border}; color: ${text};
     }
-    .mfc-chip.late { color: #dc2626; border-color: rgba(220,38,38,.35); }
-    .mfc-chip.early { color: #16a34a; border-color: rgba(22,163,74,.35); }
+    .mfc-chip.late { color: ${late}; border-color: color-mix(in srgb, ${late} 40%, transparent); }
+    .mfc-chip.early { color: ${early}; border-color: color-mix(in srgb, ${early} 40%, transparent); }
     .mfc-chip.ontime, .mfc-chip.on-time { color: ${magenta}; }
-    .mfc-chip.tight { color: #991b1b; border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.12); }
-    .mfc-chip.ok { color: #166534; border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.12); }
+    .mfc-chip.tight { color: ${tight}; border-color: color-mix(in srgb, ${tight} 45%, transparent); background: color-mix(in srgb, ${tight} 14%, transparent); }
+    .mfc-chip.ok { color: ${ok}; border-color: color-mix(in srgb, ${ok} 45%, transparent); background: color-mix(in srgb, ${ok} 14%, transparent); }
     .mfc-chip.long, .mfc-chip.unknown { color: ${muted}; }
     .mfc-error { color: #dc2626; font-size: 0.88rem; }
     .mfc-grid {
@@ -298,8 +309,8 @@ function mfcStyles(dark, theme) {
     .mfc-cell { background: ${bg}; border: 1px solid ${border}; border-radius: 10px; padding: 8px; text-align: center; }
     .mfc-cell strong { display: block; font-size: 1.05rem; }
     .mfc-cell span { color: ${muted}; font-size: 0.72rem; }
-    .mfc-cell.late strong { color: #c0392b; }
-    .mfc-cell.early strong { color: #0d9488; }
+    .mfc-cell.late strong { color: ${late}; }
+    .mfc-cell.early strong { color: ${early}; }
     .mfc-cell.ok strong { color: ${navy}; }
     .mfc-cell.cancel strong { color: ${magenta}; }
     .mfc-progress {
@@ -329,12 +340,12 @@ function mfcStyles(dark, theme) {
       font: inherit; font-size: 0.72rem; font-weight: 700; min-width: 28px; height: 28px;
       border-radius: 8px; border: 1px solid ${border}; background: ${card}; color: ${muted}; cursor: pointer;
     }
-    .mfc-wx button.on { color: ${navy}; border-color: ${magenta}; }
+    .mfc-wx button.on { color: ${magenta}; border-color: ${magenta}; }
     .mfc-board { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 8px; }
     .mfc-board th { text-align: left; color: ${muted}; font-weight: 600; padding: 4px 6px; }
     .mfc-board td { padding: 5px 6px; border-top: 1px solid ${border}; }
-    .mfc-board .late { color: #c0392b; font-weight: 600; }
-    .mfc-board .early { color: #0d9488; font-weight: 600; }
+    .mfc-board .late { color: ${late}; font-weight: 600; }
+    .mfc-board .early { color: ${early}; font-weight: 600; }
     .mfc-board .cancel { color: ${magenta}; text-decoration: line-through; }
     .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 8px; }
     .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
@@ -366,6 +377,19 @@ function mfcStyles(dark, theme) {
     }
     .mfc.compact .mfc-cal-d .num { margin-bottom: 0; font-size: 0.62rem; }
     .mfc.compact .mfc-cal--codes .mfc-cal-d .lbl { -webkit-line-clamp: 2; font-size: 0.52rem; }
+    .mfc.compact .mfc-stat { font-size: 0.98rem; }
+    .mfc.compact .mfc-muted { font-size: 0.78rem; }
+    .mfc.compact .mfc-chips { margin-top: 4px; gap: 4px; }
+    .mfc.compact .mfc-chip { font-size: 0.68rem; padding: 2px 6px; }
+    .mfc.compact .mfc-sector { margin-top: 4px; }
+    .mfc.compact .mfc-sector-k { font-size: 0.62rem; margin-bottom: 0; }
+    .mfc.compact .mfc-sector-v { font-size: 0.8rem; gap: 6px; }
+    .mfc.compact .mfc-progress { margin: 8px 0 6px; }
+    .mfc.compact .mfc-eta { margin: 4px 0 0; font-size: 0.82rem; }
+    .mfc.compact .mfc-list { margin-top: 4px; font-size: 0.78rem; line-height: 1.3; }
+    .mfc.compact .mfc-list li + li { margin-top: 1px; }
+    .mfc.compact .mfc-map { height: 120px; margin-top: 6px; border-radius: 10px; }
+    .mfc.compact .mfc-crew { margin: 6px 0 0; }
     .mfc-sector { margin-top: 8px; }
     .mfc-sector-k {
       display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
@@ -443,10 +467,23 @@ function mfcNeighbor(title, net, side) {
   </div>`;
 }
 
-function mfcTurnaround(ta) {
+function mfcTurnaroundChip(ta, compact) {
   if (!ta || !ta.text) return "";
-  const label = ta.label || "Turnaround";
-  return `<div class="mfc-chips"><span class="mfc-chip ${mfcEsc(ta.tone || "long")}">${mfcEsc(label)} · ${mfcEsc(ta.text)}</span></div>`;
+  const raw = ta.label || "Turnaround";
+  let label = raw;
+  if (compact) {
+    const at = String(raw).match(/\b([A-Z]{3})\b/);
+    if (/before/i.test(raw)) label = "Before";
+    else if (/after/i.test(raw)) label = "After";
+    else if (at) label = at[1];
+    else label = "TA";
+  }
+  return `<span class="mfc-chip ${mfcEsc(ta.tone || "long")}">${mfcEsc(label)} · ${mfcEsc(ta.text)}</span>`;
+}
+
+function mfcTurnaroundRow(items, compact) {
+  const chips = (items || []).map((ta) => mfcTurnaroundChip(ta, compact)).filter(Boolean).join("");
+  return chips ? `<div class="mfc-chips">${chips}</div>` : "";
 }
 
 let mfcLeafletPromise = null;
@@ -964,18 +1001,20 @@ class MyFlightBaseCard extends HTMLElement {
     if (!wrap) {
       root.innerHTML = `
         <style></style>
-        <div class="mfc">
-          <div class="mfc-h">
-            <div class="mfc-h-main">
-              <h2 class="mfc-title"></h2>
-              <div class="mfc-status" hidden></div>
-              <div class="mfc-sub" hidden></div>
+        <ha-card>
+          <div class="mfc">
+            <div class="mfc-h">
+              <div class="mfc-h-main">
+                <h2 class="mfc-title"></h2>
+                <div class="mfc-status" hidden></div>
+                <div class="mfc-sub" hidden></div>
+              </div>
+              <div class="mfc-h-extra"></div>
             </div>
-            <div class="mfc-h-extra"></div>
+            <div class="mfc-body"></div>
+            <div class="mfc-map" hidden></div>
           </div>
-          <div class="mfc-body"></div>
-          <div class="mfc-map" hidden></div>
-        </div>
+        </ha-card>
       `;
       wrap = root.querySelector(".mfc");
     }
@@ -1078,7 +1117,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
 }
 
 class MyFlightMissionCard extends MyFlightBaseCard {
-  getCardSize() { return 6; }
+  getCardSize() { return 4; }
   _render() {
     const snap = this._snapshot();
     if (!snap.ok) { this._renderMissing(); return; }
@@ -1086,29 +1125,34 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     const mission = a.mission;
     const duty = mission?.duty || a.next_duty;
     if (!mission && !duty) {
-      this._renderShell("Your mission", `<p class="mfc-empty">No flight duty loaded.</p>`);
+      this._renderShell("Your mission", `<p class="mfc-empty">No flight duty loaded.</p>`, { compact: true });
       return;
     }
     const leg = mission?.leg;
     const net = mission?.network || {};
     const checkIn = duty?.check_in || duty?.report_time;
-    const crew = (duty?.crew || [])
-      .slice(0, 8)
-      .map((m) => `<li>${mfcEsc(m.rank || "")} ${mfcEsc(m.name)}${m.checked_in ? " ✓" : ""}</li>`)
-      .join("");
+    const crewList = duty?.crew || [];
+    const crewNames = crewList
+      .slice(0, 5)
+      .map((m) => `${m.rank || ""} ${m.name}`.trim())
+      .filter(Boolean);
+    const crew = crewNames.length
+      ? `<p class="mfc-muted mfc-crew">${crewNames.map(mfcEsc).join(" · ")}${crewList.length > 5 ? " · …" : ""}</p>`
+      : "";
+    const meta = [mfcDateLabel(duty?.date), checkIn ? `Check-in ${mfcClock(checkIn)}` : ""]
+      .filter(Boolean)
+      .join(" · ");
     const progress = mfcProgressFromLeg(leg, { ...leg, ...net, progress: mission?.progress, times: mission?.times });
     this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
-        <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date))}</span></p>
-      ${checkIn ? `<p class="mfc-muted" style="margin:4px 0 0">Check-in ${mfcEsc(mfcClock(checkIn))}</p>` : ""}
+        ${meta ? `<span class="mfc-muted">${mfcEsc(meta)}</span>` : ""}</p>
       ${mfcNeighbor("Coming from", mission?.previous, "arr")}
-      ${mfcTurnaround(mission?.turnaround_before)}
-      ${(mission?.turnaround_sectors || []).map(mfcTurnaround).join("")}
+      ${mfcTurnaroundRow([mission?.turnaround_before, ...(mission?.turnaround_sectors || [])], true)}
       ${mfcProgress(progress)}
       ${mfcNeighbor("Then", mission?.next, "dep")}
-      ${mfcTurnaround(mission?.turnaround_after)}
-      ${crew ? `<ul class="mfc-list">${crew}</ul>` : ""}
-    `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true });
+      ${mfcTurnaroundRow([mission?.turnaround_after], true)}
+      ${crew}
+    `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true, compact: true });
   }
 }
 
