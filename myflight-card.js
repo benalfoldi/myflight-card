@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.13";
+const MFC_VERSION = "0.2.14";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -410,7 +410,7 @@ function mfcStyles(dark, theme) {
     }
     .mfc.compact .mfc-cal-d .num { margin-bottom: 0; font-size: 0.62rem; }
     .mfc.compact .mfc-cal--codes .mfc-cal-d .lbl { -webkit-line-clamp: 2; font-size: 0.52rem; }
-    .mfc.compact .mfc-stat { font-size: 0.98rem; }
+    .mfc.compact .mfc-stat { font-size: 0.9rem; line-height: 1.25; }
     .mfc.compact .mfc-muted { font-size: 0.78rem; }
     .mfc.compact .mfc-chips { margin-top: 4px; gap: 4px; }
     .mfc.compact .mfc-chip { font-size: 0.68rem; padding: 2px 6px; }
@@ -443,12 +443,34 @@ function mfcStyles(dark, theme) {
     .mfc-sector-v { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 0.88rem; }
     .mfc-crew { margin: 8px 0 0; line-height: 1.4; }
     .mfc-crew strong { color: ${navy}; font-weight: 800; }
-    .mfc-duty-list { margin: 6px 0; }
-    .mfc-duty-sec { margin-top: 6px; }
+    .mfc-duty {
+      margin-top: 8px; padding: 8px 8px 8px 10px; border-radius: 10px;
+      border: 1px solid ${border}; background: ${bg};
+    }
+    .mfc-duty-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 0; }
+    .mfc-duty-sec {
+      margin: 0; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid ${border}; background: ${card};
+    }
+    .mfc-duty-sec.done { opacity: 0.78; }
     .mfc-duty-sec.done .mfc-duty-sec-v { color: ${muted}; }
+    .mfc-duty-sec.active {
+      opacity: 1;
+      background: color-mix(in srgb, ${magenta} 12%, ${card});
+      border-color: ${magenta};
+      box-shadow: inset 3px 0 0 ${magenta}, 0 0 0 1px color-mix(in srgb, ${magenta} 28%, transparent);
+    }
+    .mfc-duty-now {
+      display: block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em;
+      text-transform: uppercase; color: ${magenta}; margin-bottom: 2px;
+    }
+    .mfc-duty-sec.active .mfc-progress { margin: 8px 0 6px; }
     .mfc-duty-sec-v { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 0.82rem; }
-    .mfc.compact .mfc-duty-sec { margin-top: 4px; }
+    .mfc.compact .mfc-duty { margin-top: 6px; padding: 6px 6px 6px 8px; }
+    .mfc.compact .mfc-duty-list { gap: 5px; margin-top: 2px; }
+    .mfc.compact .mfc-duty-sec { margin-top: 0; padding: 6px 8px; }
     .mfc.compact .mfc-duty-sec-v { font-size: 0.78rem; }
+    .mfc.compact .mfc-duty-sec.active .mfc-progress { margin: 6px 0 4px; }
     .mfc-change-alert {
       margin: 0 0 8px; font-size: 0.82rem; font-weight: 800; letter-spacing: 0.04em;
       text-transform: uppercase; color: ${magenta};
@@ -552,8 +574,9 @@ function mfcStyles(dark, theme) {
   `;
 }
 
-function mfcProgress(display) {
+function mfcProgress(display, opts) {
   if (!display || !display.departure) return "";
+  const skipEnds = Boolean(opts && opts.skipEnds);
   const pct = Math.round(Math.max(0, Math.min(1, Number(display.progress) || 0)) * 100);
   const times = display.times || {};
   const leftLabel = times.dep_label || display.leftTimeLabel || "STD";
@@ -568,7 +591,7 @@ function mfcProgress(display) {
     ? `<span class="mfc-chip ${mfcEsc(display.arrDelayTone || "")}">Arr · ${mfcEsc(display.arrDelayText)}</span>`
     : "";
   return `
-    <div class="mfc-ends"><span>${mfcEsc(display.departure)}</span><span>${mfcEsc(display.arrival)}</span></div>
+    ${skipEnds ? "" : `<div class="mfc-ends"><span>${mfcEsc(display.departure)}</span><span>${mfcEsc(display.arrival)}</span></div>`}
     <div class="mfc-progress" style="--p:${pct}%">
       <div class="mfc-progress-fill"></div>
       <div class="mfc-plane" title="${pct}%"></div>
@@ -637,36 +660,51 @@ function mfcCrewLine(crewList) {
 
 function mfcDutySectors(sectors, mission) {
   if (!Array.isArray(sectors) || !sectors.length) {
-    return mfcProgress(mfcProgressFromLeg(mission?.leg, {
-      ...(mission?.network || {}),
-      progress: mission?.progress,
-      times: mission?.times,
-    }));
+    return `<div class="mfc-duty">
+      <span class="mfc-sector-k">Sectors</span>
+      <div class="mfc-duty-list"><div class="mfc-duty-sec active">
+        <span class="mfc-duty-now">Now</span>
+        ${mfcProgress(mfcProgressFromLeg(mission?.leg, {
+          ...(mission?.network || {}),
+          progress: mission?.progress,
+          times: mission?.times,
+        }), { skipEnds: false })}
+      </div></div>
+    </div>`;
   }
   const blocks = sectors.map((sec) => {
     const net = sec.network || {};
     const merged = { ...(sec.leg || {}), ...net };
     const ta = mfcTurnaroundChip(sec.turnaround_after);
+    const num = merged.flight_number ? `${mfcEsc(merged.flight_number)} · ` : "";
+    const route = `${num}${mfcEsc(merged.departure || "")} → ${mfcEsc(merged.arrival || "")}`;
     if (sec.active) {
       const progress = mfcProgressFromLeg(merged, {
         ...merged,
         progress: mission?.progress ?? sec.progress,
         times: mission?.times,
       });
-      return `<div class="mfc-duty-sec active">${mfcProgress(progress)}${ta ? `<div class="mfc-chips">${ta}</div>` : ""}</div>`;
+      return `<div class="mfc-duty-sec active">
+        <span class="mfc-duty-now">Now</span>
+        <div class="mfc-duty-sec-v"><strong>${route}</strong></div>
+        ${mfcProgress(progress, { skipEnds: true })}
+        ${ta ? `<div class="mfc-chips">${ta}</div>` : ""}
+      </div>`;
     }
     const done = Number(sec.progress) >= 1;
-    const num = merged.flight_number ? `${mfcEsc(merged.flight_number)} · ` : "";
     const delay = mfcDelayChips(net);
     const clock = mfcNetClock(merged, done ? "arr" : "dep")
       || `${done ? "STA" : "STD"} ${mfcClock(done ? merged.sta : merged.std)}`;
     return `<div class="mfc-duty-sec${done ? " done" : ""}">
-      <div class="mfc-duty-sec-v"><strong>${num}${mfcEsc(merged.departure || "")} → ${mfcEsc(merged.arrival || "")}</strong>
+      <div class="mfc-duty-sec-v"><strong>${route}</strong>
         <span class="mfc-muted">${mfcEsc(clock)}</span></div>
       ${delay || ta ? `<div class="mfc-chips">${delay}${ta}</div>` : ""}
     </div>`;
   });
-  return `<div class="mfc-duty-list">${blocks.join("")}</div>`;
+  return `<div class="mfc-duty">
+    <span class="mfc-sector-k">Sectors</span>
+    <div class="mfc-duty-list">${blocks.join("")}</div>
+  </div>`;
 }
 
 function mfcClockMinutes(value) {
@@ -1452,7 +1490,7 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     const a = this._snapshot().attrs || {};
     const duty = a.mission?.duty || a.next_duty;
     return (mfcIsFlightDuty(duty) || a.mission?.leg)
-      ? 3 + Math.min(4, (a.mission?.sectors || []).length || 1)
+      ? 3 + Math.min(3, (a.mission?.sectors || []).length || 1)
       : 2;
   }
   _render() {
