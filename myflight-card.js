@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.9";
+const MFC_VERSION = "0.2.10";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -467,7 +467,7 @@ function mfcStyles(dark, theme) {
       padding: 4px 12px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em;
       text-transform: uppercase; color: ${dark ? "#7f91b3" : "#5b6d8a"};
     }
-    .mfc-fids-scroll { max-height: 380px; overflow: auto; }
+    .mfc-fids-scroll { max-height: 380px; overflow: auto; position: relative; }
     .mfc-fids-row {
       padding: 7px 12px; font-size: 0.78rem;
       border-top: 1px solid ${dark ? "#182238" : "#d5deea"};
@@ -664,6 +664,14 @@ function mfcFidsStatus(flight) {
   if (tone === "late") return { text: String(flight.delay_text || "Delayed").toUpperCase(), cls: "late" };
   if (tone === "early") return { text: String(flight.delay_text || "Early").toUpperCase(), cls: "early" };
   return { text: "ON TIME", cls: "ontime" };
+}
+
+function mfcSnapFidsToNow(root) {
+  const scroller = root?.querySelector(".mfc-fids-scroll");
+  const mark = scroller?.querySelector(".mfc-fids-now-mark");
+  if (!scroller || !mark || scroller.clientHeight < 40) return false;
+  scroller.scrollTop = Math.max(0, mark.offsetTop - Math.round(scroller.clientHeight / 3));
+  return true;
 }
 
 function mfcFidsSortKey(flight) {
@@ -1652,18 +1660,10 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
       return;
     }
     this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), { icon: true });
-    const snapKey = `${stats.airport}|${stats.date}`;
-    if (this._fidsSnapKey === snapKey) return;
-    this._fidsSnapKey = snapKey;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const scroller = this.shadowRoot?.querySelector(".mfc-fids-scroll");
-        const mark = scroller?.querySelector(".mfc-fids-now-mark");
-        if (!scroller || !mark) return;
-        const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-        scroller.scrollTop = Math.max(0, top - scroller.clientHeight / 3);
-      });
-    });
+    const root = this.shadowRoot;
+    if (!mfcSnapFidsToNow(root)) {
+      requestAnimationFrame(() => mfcSnapFidsToNow(root));
+    }
   }
 }
 
