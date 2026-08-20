@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.10";
+const MFC_VERSION = "0.2.11";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -131,6 +131,20 @@ function mfcWho(attrs) {
 function mfcTitled(base, attrs) {
   const who = mfcWho(attrs);
   return who ? `${base} · ${who}` : base;
+}
+
+function mfcLiveTitle(attrs) {
+  return `${mfcWho(attrs) || "You"} · Live`;
+}
+
+function mfcOwnLive(attrs) {
+  const mission = attrs?.mission;
+  if (!mission?.leg || !mission.status) return null;
+  const dutyDate = mission.duty?.date;
+  if (mission.status === "preflight" && dutyDate && dutyDate > mfcLocalIsoDate()) {
+    return null;
+  }
+  return mission;
 }
 
 function mfcIconPlane(color) {
@@ -1593,6 +1607,53 @@ class MyFlightPartnerBadgeCard extends MyFlightBaseCard {
   }
 }
 
+class MyFlightLiveFlightCard extends MyFlightBaseCard {
+  getCardSize() { return 4; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const live = mfcOwnLive(a);
+    const title = mfcLiveTitle(a);
+    if (!live) {
+      this._renderShell(title, `<p class="mfc-empty">No live sector right now.</p>`, { compact: true, icon: true });
+      return;
+    }
+    const net = live.network || {};
+    const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
+    this._renderShell(title, mfcProgress(progress), {
+      map: live.map,
+      status: live.status,
+      icon: true,
+      compact: true,
+      headerExtra: mfcTimesLegend(a),
+    });
+  }
+}
+
+class MyFlightLiveBadgeCard extends MyFlightBaseCard {
+  getCardSize() { return 1; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const live = mfcOwnLive(a);
+    const title = mfcLiveTitle(a);
+    if (!live) {
+      this._renderShell(title, `<p class="mfc-empty">No live sector.</p>`, { icon: true, compact: true });
+      return;
+    }
+    const net = live.network || {};
+    const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
+    this._renderShell(title, mfcProgress(progress), {
+      status: live.status,
+      icon: true,
+      compact: true,
+      headerExtra: mfcTimesLegend(a),
+    });
+  }
+}
+
 class MyFlightRosterCard extends MyFlightBaseCard {
   getCardSize() { return this._rosterCompact() ? 4 : 6; }
   _render() {
@@ -1700,6 +1761,8 @@ class MyFlightRosterChangesCard extends MyFlightBaseCard {
 const MFC_CARD_TYPES = [
   ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next", "Next scheduled item"],
   ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
+  ["myflight-live-flight-card", MyFlightLiveFlightCard, "myFlight Live", "Own live sector with map"],
+  ["myflight-live-badge-card", MyFlightLiveBadgeCard, "myFlight Live badge", "Own live progress, no map"],
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
   ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Location", "Pinned location day stats"],
   ["myflight-airport-board-card", MyFlightAirportBoardCard, "myFlight Board", "Day list for a location"],
