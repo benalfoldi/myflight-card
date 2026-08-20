@@ -1,12 +1,14 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.5";
+const MFC_VERSION = "0.2.6";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
 const MFC_PLANE_PNG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="M21 16v-2l-8-5V3.5A1.5 1.5 0 0 0 11.5 2 1.5 1.5 0 0 0 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>')}`;
 const MFC_WX_KEY = "mfc-map-weather";
+const MFC_TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+const MFC_TILE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const MFC_CAT_COLOR = {
   flight: "#2563eb",
   standby: "#d97706",
@@ -65,6 +67,13 @@ function mfcIsDark(hass) {
     if (hass?.themes?.darkMode) return true;
   } catch (_e) { /* ignore */ }
   return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ?? false;
+}
+
+function mfcIsFlightDuty(duty) {
+  const type = String(duty?.duty_type || "").toLowerCase();
+  if (type === "flight") return true;
+  if (type && type !== "flight") return false;
+  return Array.isArray(duty?.legs) && duty.legs.length > 0;
 }
 
 function mfcEsc(value) {
@@ -331,7 +340,7 @@ function mfcStyles(dark, theme) {
     .mfc-ends { display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 700; }
     .mfc-times { display: flex; justify-content: space-between; color: ${muted}; font-size: 0.78rem; margin-top: 2px; }
     .mfc-map { height: 180px; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid ${border}; z-index: 0; position: relative; }
-    .mfc-map.leaflet-container { background: ${bg}; }
+    .mfc-map.leaflet-container { background: ${dark ? "#1b1b1b" : "#e8eef4"}; }
     .mfc-wx {
       position: absolute; top: 8px; right: 8px; z-index: 500;
       display: flex; gap: 4px;
@@ -384,12 +393,16 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-sector { margin-top: 4px; }
     .mfc.compact .mfc-sector-k { font-size: 0.62rem; margin-bottom: 0; }
     .mfc.compact .mfc-sector-v { font-size: 0.8rem; gap: 6px; }
-    .mfc.compact .mfc-progress { margin: 8px 0 6px; }
     .mfc.compact .mfc-eta { margin: 4px 0 0; font-size: 0.82rem; }
     .mfc.compact .mfc-list { margin-top: 4px; font-size: 0.78rem; line-height: 1.3; }
     .mfc.compact .mfc-list li + li { margin-top: 1px; }
     .mfc.compact .mfc-map { height: 120px; margin-top: 6px; border-radius: 10px; }
     .mfc.compact .mfc-crew { margin: 6px 0 0; }
+    .mfc.compact .mfc-status { margin-top: 2px; padding: 2px 8px; font-size: 0.7rem; }
+    .mfc.compact .mfc-ends { font-size: 0.75rem; }
+    .mfc.compact .mfc-times { font-size: 0.7rem; }
+    .mfc.compact .mfc-progress { height: 6px; margin: 6px 0 4px; }
+    .mfc.compact .mfc-plane { width: 16px; height: 16px; }
     .mfc-sector { margin-top: 8px; }
     .mfc-sector-k {
       display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
@@ -429,7 +442,7 @@ function mfcProgress(display) {
       <span>${mfcEsc(rightLabel)} ${mfcEsc(mfcClock(rightTime))}</span>
     </div>
     ${eta ? `<p class="mfc-eta" data-eta-at="${mfcEsc(times.eta_at || "")}" data-mins="${times.eta_in_minutes ?? ""}" data-arr-label="${mfcEsc(times.arr_label || "ETA")}">${mfcEsc(eta)}</p>` : ""}
-    <div class="mfc-chips">${depChip}${arrChip}</div>
+    ${(depChip || arrChip) ? `<div class="mfc-chips">${depChip}${arrChip}</div>` : ""}
   `;
 }
 
@@ -627,6 +640,8 @@ function mfcTeardownMap(host) {
   host._mfcRouteKey = null;
   host._mfcPending = false;
   host._mfcPendingData = null;
+  host._mfcBaseTiles = null;
+  host._mfcDark = null;
 }
 
 function mfcRouteKey(data) {
@@ -635,7 +650,21 @@ function mfcRouteKey(data) {
   return `${dep.lat ?? ""},${dep.lon ?? ""}|${arr.lat ?? ""},${arr.lon ?? ""}`;
 }
 
-function mfcSyncMapLayers(L, map, host, data) {
+function mfcEnsureBaseTiles(L, map, host, dark) {
+  if (host._mfcDark === Boolean(dark) && host._mfcBaseTiles) return;
+  host._mfcDark = Boolean(dark);
+  if (host._mfcBaseTiles) {
+    try { map.removeLayer(host._mfcBaseTiles); } catch (_e) { /* ignore */ }
+    host._mfcBaseTiles = null;
+  }
+  host._mfcBaseTiles = L.tileLayer(dark ? MFC_TILE_DARK : MFC_TILE_LIGHT, {
+    maxZoom: 13,
+    subdomains: "abcd",
+  }).addTo(map);
+  host._mfcBaseTiles.bringToBack();
+}
+
+function mfcSyncMapLayers(L, map, host, data, dark) {
   const layers = host._mfcLayers || {};
   const bounds = [];
   const dep = data.departure;
@@ -643,6 +672,7 @@ function mfcSyncMapLayers(L, map, host, data) {
   const routeKey = mfcRouteKey(data);
   const routeChanged = host._mfcRouteKey !== routeKey;
   host._mfcRouteKey = routeKey;
+  const ink = dark ? "#e2e8f8" : "#0a1f44";
 
   const setCircle = (key, lat, lon, opts) => {
     if (lat == null || lon == null) {
@@ -651,12 +681,16 @@ function mfcSyncMapLayers(L, map, host, data) {
     }
     const latlng = [lat, lon];
     bounds.push(latlng);
-    if (layers[key]) layers[key].setLatLng(latlng);
-    else layers[key] = L.circleMarker(latlng, opts).addTo(map);
+    if (layers[key]) {
+      layers[key].setLatLng(latlng);
+      layers[key].setStyle(opts);
+    } else {
+      layers[key] = L.circleMarker(latlng, opts).addTo(map);
+    }
   };
 
-  setCircle("dep", dep?.lat, dep?.lon, { radius: 5, color: "#0a1f44", fillOpacity: 1 });
-  setCircle("arr", arr?.lat, arr?.lon, { radius: 5, color: "#c6007e", fillOpacity: 1 });
+  setCircle("dep", dep?.lat, dep?.lon, { radius: 5, color: ink, fillColor: ink, fillOpacity: 1 });
+  setCircle("arr", arr?.lat, arr?.lon, { radius: 5, color: "#c6007e", fillColor: "#c6007e", fillOpacity: 1 });
 
   const here = data.latitude != null && data.longitude != null
     ? [data.latitude, data.longitude]
@@ -700,8 +734,12 @@ function mfcSyncMapLayers(L, map, host, data) {
   }
   if (trailLatLngs.length > 1) {
     trailLatLngs.forEach((pt) => bounds.push(pt));
-    if (layers.trail) layers.trail.setLatLngs(trailLatLngs);
-    else layers.trail = L.polyline(trailLatLngs, { color: "#0a1f44", weight: 2 }).addTo(map);
+    if (layers.trail) {
+      layers.trail.setLatLngs(trailLatLngs);
+      layers.trail.setStyle({ color: ink, weight: 2 });
+    } else {
+      layers.trail = L.polyline(trailLatLngs, { color: ink, weight: 2 }).addTo(map);
+    }
   } else if (layers.trail) {
     map.removeLayer(layers.trail);
     layers.trail = null;
@@ -728,14 +766,16 @@ function mfcSyncMapLayers(L, map, host, data) {
   }
 }
 
-function mfcMountMap(host, mapData, weatherPrefs) {
+function mfcMountMap(host, mapData, weatherPrefs, dark) {
   if (!host) return;
   mfcInjectLeafletCss(host.getRootNode());
   const data = mapData || {};
   const wx = weatherPrefs || mfcWeatherPrefs({});
   host._mfcPendingData = data;
+  host._mfcPendingDark = Boolean(dark);
   if (host._mfcMap && window.L) {
-    mfcSyncMapLayers(window.L, host._mfcMap, host, data);
+    mfcEnsureBaseTiles(window.L, host._mfcMap, host, dark);
+    mfcSyncMapLayers(window.L, host._mfcMap, host, data, dark);
     return;
   }
   if (host._mfcPending) return;
@@ -744,18 +784,18 @@ function mfcMountMap(host, mapData, weatherPrefs) {
     host._mfcPending = false;
     if (!host.isConnected) return;
     const latest = host._mfcPendingData || data;
+    const latestDark = host._mfcPendingDark;
     if (host._mfcMap) {
-      mfcSyncMapLayers(L, host._mfcMap, host, latest);
+      mfcEnsureBaseTiles(L, host._mfcMap, host, latestDark);
+      mfcSyncMapLayers(L, host._mfcMap, host, latest, latestDark);
       return;
     }
     const map = L.map(host, { zoomControl: false, attributionControl: false });
     host._mfcMap = map;
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 13,
-    }).addTo(map);
+    mfcEnsureBaseTiles(L, map, host, latestDark);
     host._mfcLayers = {};
     host._mfcRouteKey = "";
-    mfcSyncMapLayers(L, map, host, latest);
+    mfcSyncMapLayers(L, map, host, latest, latestDark);
     mfcAttachWeather(map, host, wx);
     setTimeout(() => { if (host._mfcMap) host._mfcMap.invalidateSize(); }, 50);
   }).catch(() => {
@@ -1047,7 +1087,7 @@ class MyFlightBaseCard extends HTMLElement {
     if (map) {
       const wasHidden = mapEl.hidden;
       mapEl.hidden = false;
-      mfcMountMap(mapEl, map, mfcWeatherPrefs(this._config));
+      mfcMountMap(mapEl, map, mfcWeatherPrefs(this._config), dark);
       if (wasHidden && mapEl._mfcMap) {
         setTimeout(() => mapEl._mfcMap.invalidateSize(), 50);
       }
@@ -1117,7 +1157,11 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
 }
 
 class MyFlightMissionCard extends MyFlightBaseCard {
-  getCardSize() { return 4; }
+  getCardSize() {
+    const a = this._snapshot().attrs || {};
+    const duty = a.mission?.duty || a.next_duty;
+    return mfcIsFlightDuty(duty) || a.mission?.leg ? 4 : 2;
+  }
   _render() {
     const snap = this._snapshot();
     if (!snap.ok) { this._renderMissing(); return; }
@@ -1128,6 +1172,7 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       this._renderShell("Your mission", `<p class="mfc-empty">No flight duty loaded.</p>`, { compact: true });
       return;
     }
+    const flightDuty = mfcIsFlightDuty(duty) || Boolean(mission?.leg);
     const leg = mission?.leg;
     const net = mission?.network || {};
     const checkIn = duty?.check_in || duty?.report_time;
@@ -1142,17 +1187,19 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     const meta = [mfcDateLabel(duty?.date), checkIn ? `Check-in ${mfcClock(checkIn)}` : ""]
       .filter(Boolean)
       .join(" · ");
-    const progress = mfcProgressFromLeg(leg, { ...leg, ...net, progress: mission?.progress, times: mission?.times });
+    const progress = flightDuty
+      ? mfcProgressFromLeg(leg, { ...leg, ...net, progress: mission?.progress, times: mission?.times })
+      : null;
     this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         ${meta ? `<span class="mfc-muted">${mfcEsc(meta)}</span>` : ""}</p>
-      ${mfcNeighbor("Coming from", mission?.previous, "arr")}
-      ${mfcTurnaroundRow([mission?.turnaround_before, ...(mission?.turnaround_sectors || [])], true)}
+      ${flightDuty ? mfcNeighbor("Coming from", mission?.previous, "arr") : ""}
+      ${flightDuty ? mfcTurnaroundRow([mission?.turnaround_before, ...(mission?.turnaround_sectors || [])], true) : ""}
       ${mfcProgress(progress)}
-      ${mfcNeighbor("Then", mission?.next, "dep")}
-      ${mfcTurnaroundRow([mission?.turnaround_after], true)}
+      ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep") : ""}
+      ${flightDuty ? mfcTurnaroundRow([mission?.turnaround_after], true) : ""}
       ${crew}
-    `, { map: mission?.map, subtitle: duty?.duty_text || "", icon: true, compact: true });
+    `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true });
   }
 }
 
@@ -1252,25 +1299,25 @@ class MyFlightLiveFleetCard extends MyFlightBaseCard {
 }
 
 class MyFlightPartnerFlightCard extends MyFlightBaseCard {
-  getCardSize() { return 5; }
+  getCardSize() { return 4; }
   _render() {
     const snap = this._snapshot();
     if (!snap.ok) { this._renderMissing(); return; }
     const a = snap.attrs;
     const live = a.partner_flight;
     if (!live || live.configured === false) {
-      this._renderShell("Partner live flight", `<p class="mfc-empty">Partner account is not connected.</p>`);
+      this._renderShell("Partner live", `<p class="mfc-empty">Partner account is not connected.</p>`, { compact: true, icon: true });
       return;
     }
     if (!live.status) {
-      this._renderShell(`${live.partner_label || "Partner"} · Live flight`, `<p class="mfc-empty">No live sector right now.</p>`);
+      this._renderShell(`${live.partner_label || "Partner"} · Live`, `<p class="mfc-empty">No live sector right now.</p>`, { compact: true, icon: true });
       return;
     }
     const net = live.network || {};
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
-    this._renderShell(`${live.partner_label || "Partner"} · Live flight`, `
+    this._renderShell(`${live.partner_label || "Partner"} · Live`, `
       ${mfcProgress(progress)}
-    `, { map: live.map, status: live.status, icon: true });
+    `, { map: live.map, status: live.status, icon: true, compact: true });
   }
 }
 
@@ -1303,12 +1350,12 @@ class MyFlightPartnerBadgeCard extends MyFlightBaseCard {
     const live = a.partner_flight;
     const title = `${live?.partner_label || "Partner"} · Live`;
     if (!live || live.configured === false || !live.status) {
-      this._renderShell(title, `<p class="mfc-empty">No live sector.</p>`, { icon: true });
+      this._renderShell(title, `<p class="mfc-empty">No live sector.</p>`, { icon: true, compact: true });
       return;
     }
     const net = live.network || {};
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
-    this._renderShell(title, mfcProgress(progress), { status: live.status, icon: true });
+    this._renderShell(title, mfcProgress(progress), { status: live.status, icon: true, compact: true });
   }
 }
 
