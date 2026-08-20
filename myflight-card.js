@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.7";
+const MFC_VERSION = "0.2.8";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -202,6 +202,7 @@ function mfcTimesLegend(attrs) {
 }
 
 function mfcEtaLeft(times) {
+  if (!times || times.arr_label === "ATA" || times.departed === false) return "";
   const mins = mfcRemainingMins(times);
   if (mins == null) return "";
   if (mins <= 0) return "Arriving now";
@@ -346,7 +347,7 @@ function mfcStyles(dark, theme) {
     }
     .mfc-ends { display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 700; }
     .mfc-times { display: flex; justify-content: space-between; color: ${muted}; font-size: 0.78rem; margin-top: 2px; }
-    .mfc-map { height: 180px; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid ${border}; z-index: 0; position: relative; }
+    .mfc-map { height: 220px; margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid ${border}; z-index: 0; position: relative; }
     .mfc-map.leaflet-container { background: ${dark ? "#1b1b1b" : "#e8eef4"}; }
     .mfc-wx {
       position: absolute; top: 8px; right: 8px; z-index: 500;
@@ -403,19 +404,106 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-eta { margin: 4px 0 0; font-size: 0.82rem; }
     .mfc.compact .mfc-list { margin-top: 4px; font-size: 0.78rem; line-height: 1.3; }
     .mfc.compact .mfc-list li + li { margin-top: 1px; }
-    .mfc.compact .mfc-map { height: 120px; margin-top: 6px; border-radius: 10px; }
-    .mfc.compact .mfc-crew { margin: 6px 0 0; }
+    .mfc.compact .mfc-map { height: 168px; margin-top: 8px; border-radius: 10px; }
+    .mfc.compact .mfc-crew { margin: 6px 0 0; font-size: 0.72rem; line-height: 1.35; }
     .mfc.compact .mfc-status { margin-top: 2px; padding: 2px 8px; font-size: 0.7rem; }
     .mfc.compact .mfc-ends { font-size: 0.75rem; }
     .mfc.compact .mfc-times { font-size: 0.7rem; }
     .mfc.compact .mfc-progress { height: 6px; margin: 6px 0 4px; }
     .mfc.compact .mfc-plane { width: 16px; height: 16px; }
-    .mfc-sector { margin-top: 8px; }
+    .mfc-sector { margin-top: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid ${border}; }
+    .mfc-sector.inbound {
+      background: color-mix(in srgb, ${navyFill} 8%, ${card});
+      border-left: 3px solid ${navyFill};
+    }
+    .mfc-sector.outbound {
+      background: color-mix(in srgb, ${magenta} 8%, ${card});
+      border-left: 3px solid ${magenta};
+    }
     .mfc-sector-k {
       display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
       text-transform: uppercase; color: ${muted}; margin-bottom: 2px;
     }
     .mfc-sector-v { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 0.88rem; }
+    .mfc-crew { margin: 8px 0 0; line-height: 1.4; }
+    .mfc-crew strong { color: ${navy}; font-weight: 800; }
+    .mfc-change-alert {
+      margin: 0 0 8px; font-size: 0.82rem; font-weight: 800; letter-spacing: 0.04em;
+      text-transform: uppercase; color: ${magenta};
+    }
+    .mfc-change-list { list-style: none; margin: 0; padding: 0; }
+    .mfc-change + .mfc-change { margin-top: 8px; padding-top: 8px; border-top: 1px solid ${border}; }
+    .mfc-change-date { font-size: 0.72rem; font-weight: 700; color: ${muted}; margin-bottom: 4px; }
+    .mfc-change-pair { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 0.86rem; }
+    .mfc-change-old { color: ${muted}; text-decoration: line-through; }
+    .mfc-change-arrow { color: ${magenta}; font-weight: 800; }
+    .mfc-change-new { font-weight: 700; color: ${navy}; }
+    .mfc-fids {
+      margin-top: 8px; border-radius: 12px; overflow: hidden;
+      background: #070b14; color: #f3e2a0; border: 1px solid #1c2740;
+      font-variant-numeric: tabular-nums;
+    }
+    .mfc-fids-head {
+      display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+      padding: 10px 12px 8px; background: #0c1424; border-bottom: 1px solid #24304a;
+    }
+    .mfc-fids-airport { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.08em; color: #fff; }
+    .mfc-fids-meta { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: #8ea0c0; text-transform: uppercase; }
+    .mfc-fids-cols, .mfc-fids-row {
+      display: grid; grid-template-columns: 0.7fr 0.7fr 1.4fr 0.7fr 1.2fr 0.6fr 0.8fr;
+      gap: 6px; align-items: center;
+    }
+    .mfc-fids-cols {
+      padding: 4px 12px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #7f91b3;
+    }
+    .mfc-fids-scroll { max-height: 380px; overflow: auto; }
+    .mfc-fids-cols, .mfc-fids-row { min-width: 540px; }
+    .mfc-fids-row {
+      padding: 7px 12px; font-size: 0.78rem; border-top: 1px solid #182238;
+      color: #f3e2a0;
+    }
+    .mfc-fids-row .dest { color: #fff; font-weight: 700; }
+    .mfc-fids-row .dest small { display: block; color: #8ea0c0; font-weight: 600; font-size: 0.66rem; }
+    .mfc-fids-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: 0.04em; }
+    .mfc-fids-lamp {
+      width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: 0 0 8px;
+      box-shadow: 0 0 6px currentColor;
+    }
+    .mfc-fids-row.ontime { color: #7dffa8; }
+    .mfc-fids-row.ontime .mfc-fids-status { color: #7dffa8; }
+    .mfc-fids-row.ontime .mfc-fids-lamp,
+    .mfc-fids-row.early .mfc-fids-lamp {
+      animation: mfc-fids-pulse 1.6s ease-in-out infinite;
+    }
+    .mfc-fids-row.late { color: #ffb347; }
+    .mfc-fids-row.late .mfc-fids-status { color: #ff5a5a; }
+    .mfc-fids-row.late .mfc-fids-lamp { animation: mfc-fids-blink 1.05s step-end infinite; }
+    .mfc-fids-row.early { color: #7dffa8; }
+    .mfc-fids-row.departed { color: #6d7c96; }
+    .mfc-fids-row.departed .dest { color: #9aa8c2; }
+    .mfc-fids-row.cancel { color: #ff5a5a; text-decoration: line-through; }
+    .mfc-fids-row.next, .mfc-fids-row.now {
+      background: rgba(198, 0, 126, 0.16);
+      box-shadow: inset 3px 0 0 ${magenta};
+    }
+    .mfc-fids-now-mark {
+      grid-column: 1 / -1; padding: 3px 12px; font-size: 0.62rem; font-weight: 800;
+      letter-spacing: 0.16em; color: ${magenta}; background: #10182a;
+    }
+    @keyframes mfc-fids-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.25; }
+    }
+    @keyframes mfc-fids-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
+      50% { opacity: 0.35; box-shadow: 0 0 2px currentColor; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .mfc-fids-row.late .mfc-fids-lamp,
+      .mfc-fids-row.ontime .mfc-fids-lamp,
+      .mfc-fids-row.early .mfc-fids-lamp { animation: none; }
+    }
     .mfc-cal-d.empty { background: transparent; border-color: transparent; }
     .mfc-cal-d.weekend { opacity: .85; }
     .mfc-badge { padding: 10px 12px; }
@@ -475,15 +563,98 @@ function mfcNetClock(net, side) {
   return `${label} ${mfcClock(net.atd || net.etd || net.std)}`;
 }
 
-function mfcNeighbor(title, net, side) {
+function mfcNeighbor(title, net, side, extra) {
   if (!net || !net.departure) return "";
+  const opts = extra || {};
   const num = net.flight_number ? `${mfcEsc(net.flight_number)} · ` : "";
-  const chips = mfcDelayChips(net);
-  return `<div class="mfc-sector">
+  const delay = mfcDelayChips(net);
+  const turn = mfcTurnaroundChip(opts.turnaround, true);
+  const chips = `${delay}${turn}`;
+  const variant = opts.variant ? ` ${opts.variant}` : "";
+  return `<div class="mfc-sector${variant}">
     <span class="mfc-sector-k">${mfcEsc(title)}</span>
     <span class="mfc-sector-v"><strong>${num}${mfcEsc(net.departure)} → ${mfcEsc(net.arrival)}</strong>
       <span class="mfc-muted">${mfcEsc(mfcNetClock(net, side))}</span></span>
     ${chips ? `<div class="mfc-chips">${chips}</div>` : ""}
+  </div>`;
+}
+
+function mfcLeadRank(rank) {
+  const text = String(rank || "").toUpperCase();
+  return /\bCP\b/.test(text) || /\bSC\b/.test(text);
+}
+
+function mfcCrewLine(crewList) {
+  if (!Array.isArray(crewList) || !crewList.length) return "";
+  const parts = crewList.map((member) => {
+    const label = `${member.rank || ""} ${member.name || ""}`.trim();
+    if (!label) return "";
+    return mfcLeadRank(member.rank) ? `<strong>${mfcEsc(label)}</strong>` : mfcEsc(label);
+  }).filter(Boolean);
+  return parts.length ? `<p class="mfc-muted mfc-crew">${parts.join(" · ")}</p>` : "";
+}
+
+function mfcClockMinutes(value) {
+  const clock = mfcClock(value);
+  const match = String(clock).match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function mfcNowMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function mfcFidsStatus(flight) {
+  if (flight.cancelled) return { text: "CANCELLED", cls: "cancel" };
+  if (flight.atd) return { text: "DEPARTED", cls: "departed" };
+  const tone = String(flight.delay_tone || "");
+  if (tone === "late") return { text: String(flight.delay_text || "Delayed").toUpperCase(), cls: "late" };
+  if (tone === "early") return { text: String(flight.delay_text || "Early").toUpperCase(), cls: "early" };
+  return { text: "ON TIME", cls: "ontime" };
+}
+
+function mfcFidsBoard(stats) {
+  const flights = stats.flights || [];
+  const nowMins = mfcNowMinutes();
+  let nextIndex = flights.findIndex((flight) => {
+    if (flight.cancelled || flight.atd) return false;
+    const mins = mfcClockMinutes(flight.etd || flight.std);
+    return mins != null && mins >= nowMins - 10;
+  });
+  if (nextIndex < 0) {
+    nextIndex = flights.findIndex((flight) => !flight.cancelled && !flight.atd);
+  }
+  const rows = [];
+  flights.forEach((flight, index) => {
+    if (index === nextIndex) {
+      rows.push(`<div class="mfc-fids-now-mark">NOW</div>`);
+    }
+    const status = mfcFidsStatus(flight);
+    const marker = index === nextIndex ? " now next" : "";
+    const destName = flight.destination_name
+      ? `<small>${mfcEsc(flight.destination_name)}</small>`
+      : "";
+    rows.push(`<div class="mfc-fids-row ${status.cls}${marker}">
+      <span>${mfcEsc(mfcClock(flight.std))}</span>
+      <span>${mfcEsc(flight.flight_number || "")}</span>
+      <span class="dest">${mfcEsc(flight.destination || "")}${destName}</span>
+      <span>${mfcEsc(mfcClock(flight.atd || flight.etd))}</span>
+      <span class="mfc-fids-status"><span class="mfc-fids-lamp"></span>${mfcEsc(status.text)}</span>
+      <span>${mfcEsc(flight.gate || "—")}</span>
+      <span>${mfcEsc(flight.registration || flight.aircraft_type || "—")}</span>
+    </div>`);
+  });
+  return `<div class="mfc-fids">
+    <div class="mfc-fids-head">
+      <span class="mfc-fids-airport">${mfcEsc(stats.airport)}</span>
+      <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}</span>
+    </div>
+    <div class="mfc-fids-cols">
+      <span>STD</span><span>Flt</span><span>To</span><span>ETD</span><span>Status</span><span>Gate</span><span>Acft</span>
+    </div>
+    <div class="mfc-fids-scroll">${rows.join("") || `<div class="mfc-fids-row">No departures</div>`}</div>
   </div>`;
 }
 
@@ -766,10 +937,14 @@ function mfcSyncMapLayers(L, map, host, data, dark) {
   }
 
   host._mfcLayers = layers;
-  if (routeChanged && bounds.length) {
-    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 8 });
-  } else if (routeChanged && !bounds.length) {
-    map.setView([47.4, 19.2], 4);
+  const camera = [];
+  if (origin) camera.push(origin);
+  if (dest) camera.push(dest);
+  if (here) camera.push(here);
+  if (routeChanged && camera.length) {
+    map.fitBounds(camera, { padding: [18, 18], maxZoom: 10 });
+  } else if (routeChanged && !camera.length) {
+    map.setView([47.4, 19.2], 5);
   }
 }
 
@@ -1151,7 +1326,7 @@ class MyFlightNextDutyCard extends MyFlightBaseCard {
       .map((leg) => `<li><strong>${mfcEsc(leg.flight_number)}</strong> ${mfcEsc(leg.departure)} → ${mfcEsc(leg.arrival)} <span class="mfc-muted">${mfcEsc(mfcClock(leg.std))}–${mfcEsc(mfcClock(leg.sta))}</span></li>`)
       .join("");
     const pending = changes.length
-      ? `<p class="mfc-error">${changes.length} update${changes.length === 1 ? "" : "s"} pending</p><ul class="mfc-list">${changes.map((c) => `<li>${mfcEsc(c.date)} · ${mfcEsc(c.new_summary || c.old_summary)}</li>`).join("")}</ul>`
+      ? `<p class="mfc-change-alert">${changes.length} eCREW update${changes.length === 1 ? "" : "s"}</p>`
       : "";
     this._renderShell(duty.label || "Next duty", `
       <div class="mfc-sub">${mfcEsc(mfcDateLabel(duty.date))}</div>
@@ -1184,13 +1359,7 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     const net = mission?.network || {};
     const checkIn = duty?.check_in || duty?.report_time;
     const crewList = duty?.crew || [];
-    const crewNames = crewList
-      .slice(0, 5)
-      .map((m) => `${m.rank || ""} ${m.name}`.trim())
-      .filter(Boolean);
-    const crew = crewNames.length
-      ? `<p class="mfc-muted mfc-crew">${crewNames.map(mfcEsc).join(" · ")}${crewList.length > 5 ? " · …" : ""}</p>`
-      : "";
+    const crew = mfcCrewLine(crewList);
     const meta = [mfcDateLabel(duty?.date), checkIn ? `Check-in ${mfcClock(checkIn)}` : ""]
       .filter(Boolean)
       .join(" · ");
@@ -1200,11 +1369,9 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         ${meta ? `<span class="mfc-muted">${mfcEsc(meta)}</span>` : ""}</p>
-      ${flightDuty ? mfcNeighbor("Coming from", mission?.previous, "arr") : ""}
-      ${flightDuty ? mfcTurnaroundRow([mission?.turnaround_before, ...(mission?.turnaround_sectors || [])], true) : ""}
+      ${flightDuty ? mfcNeighbor("Coming from", mission?.previous, "arr", { variant: "inbound", turnaround: mission?.turnaround_before }) : ""}
       ${mfcProgress(progress)}
-      ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep") : ""}
-      ${flightDuty ? mfcTurnaroundRow([mission?.turnaround_after], true) : ""}
+      ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep", { variant: "outbound", turnaround: mission?.turnaround_after }) : ""}
       ${crew}
     `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
   }
@@ -1432,28 +1599,44 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
       this._renderShell("Airport board", `<p class="mfc-empty">No airport yet. Default is your base.</p>`, { icon: true });
       return;
     }
-    const flights = stats.flights || [];
-    const rows = flights.map((f) => {
-      const tone = f.cancelled ? "cancel" : (f.delay_tone || "");
-      return `<tr class="${tone}">
-        <td><strong>${mfcEsc(f.flight_number)}</strong></td>
-        <td>${mfcEsc(f.destination)}${f.destination_name ? ` <span class="mfc-muted">${mfcEsc(f.destination_name)}</span>` : ""}</td>
-        <td>${mfcEsc(mfcClock(f.std))}</td>
-        <td>${mfcEsc(mfcClock(f.atd || f.etd))}</td>
-        <td class="${tone}">${f.cancelled ? "CNL" : mfcEsc(f.delay_text || "—")}</td>
-        <td>${mfcEsc(f.gate || "")}</td>
-        <td>${mfcEsc(f.registration || "")}</td>
-      </tr>`;
-    }).join("");
-    this._renderShell(`${stats.airport} departures`, `
-      <p class="mfc-muted">${flights.length} flights · ${stats.date || ""}</p>
-      <div style="overflow:auto;max-height:360px">
-        <table class="mfc-board">
-          <thead><tr><th>Flt</th><th>To</th><th>STD</th><th>ETD</th><th>Delay</th><th>Gate</th><th>Acft</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="7" class="mfc-muted">No rows</td></tr>`}</tbody>
-        </table>
-      </div>
-    `, { icon: true });
+    this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), { icon: true });
+    requestAnimationFrame(() => {
+      const scroller = this.shadowRoot?.querySelector(".mfc-fids-scroll");
+      const mark = scroller?.querySelector(".mfc-fids-now-mark, .mfc-fids-row.now");
+      if (scroller && mark) {
+        scroller.scrollTop = Math.max(0, mark.offsetTop - scroller.clientHeight / 3);
+      }
+    });
+  }
+}
+
+class MyFlightRosterChangesCard extends MyFlightBaseCard {
+  getCardSize() { return 2; }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const changes = a.roster_changes || [];
+    if (!changes.length) {
+      this._renderShell(mfcTitled("eCREW changes", a), `<p class="mfc-empty">No roster updates.</p>`, {
+        icon: true,
+        compact: true,
+      });
+      return;
+    }
+    const rows = changes.map((change) => `
+      <li class="mfc-change">
+        <div class="mfc-change-date">${mfcEsc(mfcDateLabel(change.date))}</div>
+        <div class="mfc-change-pair">
+          <span class="mfc-change-old">${mfcEsc(change.old_summary || "—")}</span>
+          <span class="mfc-change-arrow" aria-hidden="true">→</span>
+          <span class="mfc-change-new">${mfcEsc(change.new_summary || "—")}</span>
+        </div>
+      </li>`).join("");
+    this._renderShell(mfcTitled("eCREW changes", a), `
+      <p class="mfc-change-alert">${changes.length} update${changes.length === 1 ? "" : "s"}</p>
+      <ul class="mfc-change-list">${rows}</ul>
+    `, { icon: true, compact: true });
   }
 }
 
@@ -1463,6 +1646,7 @@ const MFC_CARD_TYPES = [
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
   ["myflight-airport-stats-card", MyFlightAirportStatsCard, "myFlight Location", "Pinned location day stats"],
   ["myflight-airport-board-card", MyFlightAirportBoardCard, "myFlight Board", "Day list for a location"],
+  ["myflight-roster-changes-card", MyFlightRosterChangesCard, "myFlight eCREW changes", "Read-only roster updates"],
   ["myflight-roster-card", MyFlightRosterCard, "myFlight Calendar", "Month calendar"],
   ["myflight-live-fleet-card", MyFlightLiveFleetCard, "myFlight Count", "Active count"],
   ["myflight-partner-flight-card", MyFlightPartnerFlightCard, "myFlight Partner live", "Partner live with map"],

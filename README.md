@@ -16,4 +16,6 @@ entity: sensor.myflight_status
 theme: brand
 ```
 
+Other types: `myflight-mission-card`, `myflight-airport-board-card`, `myflight-roster-changes-card`, `myflight-roster-card`, `myflight-partner-flight-card`.
+
 `theme`: `brand` (default) or `ha`. Calendar cards: Codes (default) or Details, and Compact density, in the card editor.
