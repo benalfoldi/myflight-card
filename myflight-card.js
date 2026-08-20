@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.8";
+const MFC_VERSION = "0.2.9";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -427,6 +427,12 @@ function mfcStyles(dark, theme) {
     .mfc-sector-v { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 0.88rem; }
     .mfc-crew { margin: 8px 0 0; line-height: 1.4; }
     .mfc-crew strong { color: ${navy}; font-weight: 800; }
+    .mfc-duty-list { margin: 6px 0; }
+    .mfc-duty-sec { margin-top: 6px; }
+    .mfc-duty-sec.done .mfc-duty-sec-v { color: ${muted}; }
+    .mfc-duty-sec-v { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 0.82rem; }
+    .mfc.compact .mfc-duty-sec { margin-top: 4px; }
+    .mfc.compact .mfc-duty-sec-v { font-size: 0.78rem; }
     .mfc-change-alert {
       margin: 0 0 8px; font-size: 0.82rem; font-weight: 800; letter-spacing: 0.04em;
       text-transform: uppercase; color: ${magenta};
@@ -440,57 +446,63 @@ function mfcStyles(dark, theme) {
     .mfc-change-new { font-weight: 700; color: ${navy}; }
     .mfc-fids {
       margin-top: 8px; border-radius: 12px; overflow: hidden;
-      background: #070b14; color: #f3e2a0; border: 1px solid #1c2740;
+      background: ${dark ? "#070b14" : "#eef2f8"};
+      color: ${dark ? "#f3e2a0" : "#0a1f44"};
+      border: 1px solid ${dark ? "#1c2740" : "#c5d0e0"};
       font-variant-numeric: tabular-nums;
     }
     .mfc-fids-head {
       display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
-      padding: 10px 12px 8px; background: #0c1424; border-bottom: 1px solid #24304a;
+      padding: 10px 12px 8px;
+      background: ${dark ? "#0c1424" : "#0a1f44"};
+      border-bottom: 1px solid ${dark ? "#24304a" : "#14284f"};
     }
     .mfc-fids-airport { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.08em; color: #fff; }
-    .mfc-fids-meta { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: #8ea0c0; text-transform: uppercase; }
+    .mfc-fids-meta { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; color: ${dark ? "#8ea0c0" : "#b8c6de"}; text-transform: uppercase; }
     .mfc-fids-cols, .mfc-fids-row {
-      display: grid; grid-template-columns: 0.7fr 0.7fr 1.4fr 0.7fr 1.2fr 0.6fr 0.8fr;
+      display: grid; grid-template-columns: 3.2rem 3rem minmax(0, 1.5fr) 3.2rem minmax(4.6rem, 0.9fr);
       gap: 6px; align-items: center;
     }
     .mfc-fids-cols {
       padding: 4px 12px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #7f91b3;
+      text-transform: uppercase; color: ${dark ? "#7f91b3" : "#5b6d8a"};
     }
     .mfc-fids-scroll { max-height: 380px; overflow: auto; }
-    .mfc-fids-cols, .mfc-fids-row { min-width: 540px; }
     .mfc-fids-row {
-      padding: 7px 12px; font-size: 0.78rem; border-top: 1px solid #182238;
-      color: #f3e2a0;
+      padding: 7px 12px; font-size: 0.78rem;
+      border-top: 1px solid ${dark ? "#182238" : "#d5deea"};
+      color: ${dark ? "#f3e2a0" : "#0a1f44"};
     }
-    .mfc-fids-row .dest { color: #fff; font-weight: 700; }
-    .mfc-fids-row .dest small { display: block; color: #8ea0c0; font-weight: 600; font-size: 0.66rem; }
-    .mfc-fids-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: 0.04em; }
+    .mfc-fids-row .dest { color: ${dark ? "#fff" : "#0a1f44"}; font-weight: 700; min-width: 0; }
+    .mfc-fids-row .dest small { display: block; color: ${dark ? "#8ea0c0" : "#5b6d8a"}; font-weight: 600; font-size: 0.66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mfc-fids-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; letter-spacing: 0.04em; white-space: nowrap; }
     .mfc-fids-lamp {
       width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: 0 0 8px;
       box-shadow: 0 0 6px currentColor;
     }
-    .mfc-fids-row.ontime { color: #7dffa8; }
-    .mfc-fids-row.ontime .mfc-fids-status { color: #7dffa8; }
+    .mfc-fids-row.ontime .mfc-fids-status { color: ${dark ? "#7dffa8" : "#15803d"}; }
     .mfc-fids-row.ontime .mfc-fids-lamp,
     .mfc-fids-row.early .mfc-fids-lamp {
       animation: mfc-fids-pulse 1.6s ease-in-out infinite;
     }
-    .mfc-fids-row.late { color: #ffb347; }
-    .mfc-fids-row.late .mfc-fids-status { color: #ff5a5a; }
+    .mfc-fids-row.late { color: ${dark ? "#ffb347" : "#b45309"}; }
+    .mfc-fids-row.late .mfc-fids-status { color: ${dark ? "#ff5a5a" : "#dc2626"}; }
     .mfc-fids-row.late .mfc-fids-lamp { animation: mfc-fids-blink 1.05s step-end infinite; }
-    .mfc-fids-row.early { color: #7dffa8; }
-    .mfc-fids-row.departed { color: #6d7c96; }
-    .mfc-fids-row.departed .dest { color: #9aa8c2; }
-    .mfc-fids-row.cancel { color: #ff5a5a; text-decoration: line-through; }
+    .mfc-fids-row.early .mfc-fids-status { color: ${dark ? "#7dffa8" : "#15803d"}; }
+    .mfc-fids-row.departed { color: ${dark ? "#6d7c96" : "#64748b"}; }
+    .mfc-fids-row.departed .dest { color: ${dark ? "#9aa8c2" : "#64748b"}; }
+    .mfc-fids-row.cancel { color: ${dark ? "#ff5a5a" : "#dc2626"}; text-decoration: line-through; }
     .mfc-fids-row.next, .mfc-fids-row.now {
-      background: rgba(198, 0, 126, 0.16);
+      background: ${dark ? "rgba(198, 0, 126, 0.16)" : "rgba(198, 0, 126, 0.10)"};
       box-shadow: inset 3px 0 0 ${magenta};
     }
     .mfc-fids-now-mark {
-      grid-column: 1 / -1; padding: 3px 12px; font-size: 0.62rem; font-weight: 800;
-      letter-spacing: 0.16em; color: ${magenta}; background: #10182a;
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 12px; font-size: 0.62rem; font-weight: 800;
+      letter-spacing: 0.16em; color: ${magenta};
+      background: ${dark ? "#10182a" : "#f4e7f1"};
     }
+    .mfc-fids-now-line { flex: 1; height: 1px; background: ${magenta}; opacity: 0.7; }
     @keyframes mfc-fids-blink {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.25; }
@@ -594,6 +606,40 @@ function mfcCrewLine(crewList) {
   return parts.length ? `<p class="mfc-muted mfc-crew">${parts.join(" · ")}</p>` : "";
 }
 
+function mfcDutySectors(sectors, mission) {
+  if (!Array.isArray(sectors) || !sectors.length) {
+    return mfcProgress(mfcProgressFromLeg(mission?.leg, {
+      ...(mission?.network || {}),
+      progress: mission?.progress,
+      times: mission?.times,
+    }));
+  }
+  const blocks = sectors.map((sec) => {
+    const net = sec.network || {};
+    const merged = { ...(sec.leg || {}), ...net };
+    const ta = mfcTurnaroundChip(sec.turnaround_after);
+    if (sec.active) {
+      const progress = mfcProgressFromLeg(merged, {
+        ...merged,
+        progress: mission?.progress ?? sec.progress,
+        times: mission?.times,
+      });
+      return `<div class="mfc-duty-sec active">${mfcProgress(progress)}${ta ? `<div class="mfc-chips">${ta}</div>` : ""}</div>`;
+    }
+    const done = Number(sec.progress) >= 1;
+    const num = merged.flight_number ? `${mfcEsc(merged.flight_number)} · ` : "";
+    const delay = mfcDelayChips(net);
+    const clock = mfcNetClock(merged, done ? "arr" : "dep")
+      || `${done ? "STA" : "STD"} ${mfcClock(done ? merged.sta : merged.std)}`;
+    return `<div class="mfc-duty-sec${done ? " done" : ""}">
+      <div class="mfc-duty-sec-v"><strong>${num}${mfcEsc(merged.departure || "")} → ${mfcEsc(merged.arrival || "")}</strong>
+        <span class="mfc-muted">${mfcEsc(clock)}</span></div>
+      ${delay || ta ? `<div class="mfc-chips">${delay}${ta}</div>` : ""}
+    </div>`;
+  });
+  return `<div class="mfc-duty-list">${blocks.join("")}</div>`;
+}
+
 function mfcClockMinutes(value) {
   const clock = mfcClock(value);
   const match = String(clock).match(/^(\d{2}):(\d{2})$/);
@@ -606,74 +652,77 @@ function mfcNowMinutes() {
   return now.getHours() * 60 + now.getMinutes();
 }
 
+function mfcNowClock() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 function mfcFidsStatus(flight) {
-  if (flight.cancelled) return { text: "CANCELLED", cls: "cancel" };
-  if (flight.atd) return { text: "DEPARTED", cls: "departed" };
+  if (flight.cancelled) return { text: "CNL", cls: "cancel" };
+  if (flight.atd) return { text: "DEP", cls: "departed" };
   const tone = String(flight.delay_tone || "");
   if (tone === "late") return { text: String(flight.delay_text || "Delayed").toUpperCase(), cls: "late" };
   if (tone === "early") return { text: String(flight.delay_text || "Early").toUpperCase(), cls: "early" };
   return { text: "ON TIME", cls: "ontime" };
 }
 
+function mfcFidsSortKey(flight) {
+  return mfcClockMinutes(flight.std) ?? 9999;
+}
+
+function mfcFidsEffectiveMinutes(flight) {
+  return mfcClockMinutes(flight.atd || flight.etd || flight.std);
+}
+
 function mfcFidsBoard(stats) {
-  const flights = stats.flights || [];
+  const flights = (stats.flights || []).slice().sort((left, right) => mfcFidsSortKey(left) - mfcFidsSortKey(right));
   const nowMins = mfcNowMinutes();
-  let nextIndex = flights.findIndex((flight) => {
-    if (flight.cancelled || flight.atd) return false;
-    const mins = mfcClockMinutes(flight.etd || flight.std);
-    return mins != null && mins >= nowMins - 10;
+  const nowClock = mfcNowClock();
+  let insertAt = flights.findIndex((flight) => {
+    const mins = mfcFidsEffectiveMinutes(flight);
+    return mins != null && mins > nowMins;
   });
-  if (nextIndex < 0) {
-    nextIndex = flights.findIndex((flight) => !flight.cancelled && !flight.atd);
-  }
+  if (insertAt < 0) insertAt = flights.length;
   const rows = [];
   flights.forEach((flight, index) => {
-    if (index === nextIndex) {
-      rows.push(`<div class="mfc-fids-now-mark">NOW</div>`);
+    if (index === insertAt) {
+      rows.push(`<div class="mfc-fids-now-mark"><span>NOW</span><span class="mfc-fids-now-line"></span><span>${mfcEsc(nowClock)}</span></div>`);
     }
     const status = mfcFidsStatus(flight);
-    const marker = index === nextIndex ? " now next" : "";
-    const destName = flight.destination_name
-      ? `<small>${mfcEsc(flight.destination_name)}</small>`
-      : "";
+    const marker = index === insertAt ? " now next" : "";
+    const extras = [flight.destination_name, flight.gate, flight.registration || flight.aircraft_type]
+      .filter(Boolean)
+      .join(" · ");
     rows.push(`<div class="mfc-fids-row ${status.cls}${marker}">
       <span>${mfcEsc(mfcClock(flight.std))}</span>
       <span>${mfcEsc(flight.flight_number || "")}</span>
-      <span class="dest">${mfcEsc(flight.destination || "")}${destName}</span>
+      <span class="dest">${mfcEsc(flight.destination || "")}${extras ? `<small>${mfcEsc(extras)}</small>` : ""}</span>
       <span>${mfcEsc(mfcClock(flight.atd || flight.etd))}</span>
       <span class="mfc-fids-status"><span class="mfc-fids-lamp"></span>${mfcEsc(status.text)}</span>
-      <span>${mfcEsc(flight.gate || "—")}</span>
-      <span>${mfcEsc(flight.registration || flight.aircraft_type || "—")}</span>
     </div>`);
   });
+  if (insertAt === flights.length && flights.length) {
+    rows.push(`<div class="mfc-fids-now-mark"><span>NOW</span><span class="mfc-fids-now-line"></span><span>${mfcEsc(nowClock)}</span></div>`);
+  }
   return `<div class="mfc-fids">
     <div class="mfc-fids-head">
       <span class="mfc-fids-airport">${mfcEsc(stats.airport)}</span>
       <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}</span>
     </div>
     <div class="mfc-fids-cols">
-      <span>STD</span><span>Flt</span><span>To</span><span>ETD</span><span>Status</span><span>Gate</span><span>Acft</span>
+      <span>STD</span><span>Flt</span><span>To</span><span>ETD</span><span>Status</span>
     </div>
     <div class="mfc-fids-scroll">${rows.join("") || `<div class="mfc-fids-row">No departures</div>`}</div>
   </div>`;
 }
 
-function mfcTurnaroundChip(ta, compact) {
+function mfcTurnaroundChip(ta) {
   if (!ta || !ta.text) return "";
-  const raw = ta.label || "Turnaround";
-  let label = raw;
-  if (compact) {
-    const at = String(raw).match(/\b([A-Z]{3})\b/);
-    if (/before/i.test(raw)) label = "Before";
-    else if (/after/i.test(raw)) label = "After";
-    else if (at) label = at[1];
-    else label = "TA";
-  }
-  return `<span class="mfc-chip ${mfcEsc(ta.tone || "long")}">${mfcEsc(label)} · ${mfcEsc(ta.text)}</span>`;
+  return `<span class="mfc-chip ${mfcEsc(ta.tone || "long")}">Turnaround · ${mfcEsc(ta.text)}</span>`;
 }
 
-function mfcTurnaroundRow(items, compact) {
-  const chips = (items || []).map((ta) => mfcTurnaroundChip(ta, compact)).filter(Boolean).join("");
+function mfcTurnaroundRow(items) {
+  const chips = (items || []).map((ta) => mfcTurnaroundChip(ta)).filter(Boolean).join("");
   return chips ? `<div class="mfc-chips">${chips}</div>` : "";
 }
 
@@ -979,7 +1028,12 @@ function mfcMountMap(host, mapData, weatherPrefs, dark) {
     host._mfcRouteKey = "";
     mfcSyncMapLayers(L, map, host, latest, latestDark);
     mfcAttachWeather(map, host, wx);
-    setTimeout(() => { if (host._mfcMap) host._mfcMap.invalidateSize(); }, 50);
+    setTimeout(() => {
+      if (!host._mfcMap) return;
+      host._mfcMap.invalidateSize();
+      host._mfcRouteKey = "";
+      mfcSyncMapLayers(L, host._mfcMap, host, host._mfcPendingData || latest, host._mfcPendingDark);
+    }, 80);
   }).catch(() => {
     host._mfcPending = false;
     if (!host._mfcMap) host.innerHTML = `<p class="mfc-muted" style="padding:12px">Map unavailable</p>`;
@@ -1342,7 +1396,9 @@ class MyFlightMissionCard extends MyFlightBaseCard {
   getCardSize() {
     const a = this._snapshot().attrs || {};
     const duty = a.mission?.duty || a.next_duty;
-    return mfcIsFlightDuty(duty) || a.mission?.leg ? 4 : 2;
+    return (mfcIsFlightDuty(duty) || a.mission?.leg)
+      ? 3 + Math.min(4, (a.mission?.sectors || []).length || 1)
+      : 2;
   }
   _render() {
     const snap = this._snapshot();
@@ -1355,22 +1411,18 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       return;
     }
     const flightDuty = mfcIsFlightDuty(duty) || Boolean(mission?.leg);
-    const leg = mission?.leg;
-    const net = mission?.network || {};
     const checkIn = duty?.check_in || duty?.report_time;
     const crewList = duty?.crew || [];
     const crew = mfcCrewLine(crewList);
     const meta = [mfcDateLabel(duty?.date), checkIn ? `Check-in ${mfcClock(checkIn)}` : ""]
       .filter(Boolean)
       .join(" · ");
-    const progress = flightDuty
-      ? mfcProgressFromLeg(leg, { ...leg, ...net, progress: mission?.progress, times: mission?.times })
-      : null;
+    const sectors = mission?.sectors || [];
     this._renderShell(mfcTitled("Your mission", a), `
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         ${meta ? `<span class="mfc-muted">${mfcEsc(meta)}</span>` : ""}</p>
       ${flightDuty ? mfcNeighbor("Coming from", mission?.previous, "arr", { variant: "inbound", turnaround: mission?.turnaround_before }) : ""}
-      ${mfcProgress(progress)}
+      ${flightDuty ? mfcDutySectors(sectors, mission) : ""}
       ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep", { variant: "outbound", turnaround: mission?.turnaround_after }) : ""}
       ${crew}
     `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
@@ -1600,12 +1652,17 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
       return;
     }
     this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), { icon: true });
+    const snapKey = `${stats.airport}|${stats.date}`;
+    if (this._fidsSnapKey === snapKey) return;
+    this._fidsSnapKey = snapKey;
     requestAnimationFrame(() => {
-      const scroller = this.shadowRoot?.querySelector(".mfc-fids-scroll");
-      const mark = scroller?.querySelector(".mfc-fids-now-mark, .mfc-fids-row.now");
-      if (scroller && mark) {
-        scroller.scrollTop = Math.max(0, mark.offsetTop - scroller.clientHeight / 3);
-      }
+      requestAnimationFrame(() => {
+        const scroller = this.shadowRoot?.querySelector(".mfc-fids-scroll");
+        const mark = scroller?.querySelector(".mfc-fids-now-mark");
+        if (!scroller || !mark) return;
+        const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        scroller.scrollTop = Math.max(0, top - scroller.clientHeight / 3);
+      });
     });
   }
 }
