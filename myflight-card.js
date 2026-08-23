@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.14";
+const MFC_VERSION = "0.2.15";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -346,6 +346,12 @@ function mfcStyles(dark, theme) {
     .mfc-cell.early strong { color: ${early}; }
     .mfc-cell.ok strong { color: ${navy}; }
     .mfc-cell.cancel strong { color: ${magenta}; }
+    .mfc-crew {
+      display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr);
+      gap: 8px; margin-top: 8px; align-items: stretch;
+    }
+    .mfc-crew-detail { display: flex; align-items: center; font-size: 0.82rem; line-height: 1.35; }
+    .mfc-crew-detail p { margin: 0; }
     .mfc-progress {
       position: relative; height: 8px; border-radius: 999px; background: ${bg};
       border: 1px solid ${border}; margin: 14px 0 10px;
@@ -792,7 +798,11 @@ function mfcFidsBoard(stats) {
   return `<div class="mfc-fids">
     <div class="mfc-fids-head">
       <span class="mfc-fids-airport">${mfcEsc(stats.airport)}</span>
-      <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}</span>
+      <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}${
+        stats.missing_crew?.flights
+          ? ` · ${mfcEsc(stats.missing_crew.flights)} missing crew`
+          : ""
+      }</span>
     </div>
     <div class="mfc-fids-cols">
       <span>STD</span><span>Flt</span><span>To</span><span>ATD</span><span>Status</span>
@@ -1590,8 +1600,22 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
     const heading = `${stats.total ?? 0} flight${stats.total === 1 ? "" : "s"}${
       stats.punctuality_percent != null ? ` · ${stats.punctuality_percent}% punctual` : ""
     }`;
+    const crew = stats.missing_crew || {};
+    const missing = crew.flights || 0;
+    const crewHtml = crew.error
+      ? `<p class="mfc-muted">${mfcEsc(crew.error)}</p>`
+      : missing > 0
+        ? `<div class="mfc-crew">
+            <div class="mfc-cell cancel"><strong>${mfcEsc(missing)}</strong><span>Missing crew</span></div>
+            <div class="mfc-crew-detail"><p>${mfcEsc(crew.summary || `${missing} flights missing crew`)}</p></div>
+          </div>`
+        : `<div class="mfc-crew">
+            <div class="mfc-cell"><strong>0</strong><span>Missing crew</span></div>
+            <div class="mfc-crew-detail"><p class="mfc-muted">All flights meet the A320 / A321 minimum crew.</p></div>
+          </div>`;
     this._renderShell("Airport departures", `
       <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}</div>
+      ${crewHtml}
     `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
