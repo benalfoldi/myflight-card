@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.15";
+const MFC_VERSION = "0.2.16";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -82,6 +82,19 @@ function mfcEsc(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function mfcCrewShortageLabel(crew) {
+  if (crew?.error) return String(crew.error);
+  const missing = Number(crew?.flights || 0);
+  if (!missing) return "Missing crew";
+  const bits = [];
+  if (crew.cp) bits.push(`${crew.cp} CP`);
+  if (crew.fo) bits.push(`${crew.fo} FO`);
+  if (crew.sc) bits.push(`${crew.sc} SC`);
+  if (crew.ca) bits.push(`${crew.ca} CA`);
+  if (!bits.length) return "Missing crew";
+  return `${bits.join(" · ")} missing`;
 }
 
 function mfcClock(value) {
@@ -336,7 +349,7 @@ function mfcStyles(dark, theme) {
     .mfc-chip.long, .mfc-chip.unknown { color: ${muted}; }
     .mfc-error { color: #dc2626; font-size: 0.88rem; }
     .mfc-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px; margin-top: 8px;
     }
     .mfc-cell { background: ${bg}; border: 1px solid ${border}; border-radius: 10px; padding: 8px; text-align: center; }
@@ -346,12 +359,8 @@ function mfcStyles(dark, theme) {
     .mfc-cell.early strong { color: ${early}; }
     .mfc-cell.ok strong { color: ${navy}; }
     .mfc-cell.cancel strong { color: ${magenta}; }
-    .mfc-crew {
-      display: grid; grid-template-columns: minmax(72px, 110px) minmax(0, 1fr);
-      gap: 8px; margin-top: 8px; align-items: stretch;
-    }
-    .mfc-crew-detail { display: flex; align-items: center; font-size: 0.82rem; line-height: 1.35; }
-    .mfc-crew-detail p { margin: 0; }
+    .mfc-cell--wide { grid-column: span 2; }
+    .mfc-cell--wide span { display: block; line-height: 1.3; padding: 0 4px; }
     .mfc-progress {
       position: relative; height: 8px; border-radius: 999px; background: ${bg};
       border: 1px solid ${border}; margin: 14px 0 10px;
@@ -1602,20 +1611,11 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
     }`;
     const crew = stats.missing_crew || {};
     const missing = crew.flights || 0;
-    const crewHtml = crew.error
-      ? `<p class="mfc-muted">${mfcEsc(crew.error)}</p>`
-      : missing > 0
-        ? `<div class="mfc-crew">
-            <div class="mfc-cell cancel"><strong>${mfcEsc(missing)}</strong><span>Missing crew</span></div>
-            <div class="mfc-crew-detail"><p>${mfcEsc(crew.summary || `${missing} flights missing crew`)}</p></div>
-          </div>`
-        : `<div class="mfc-crew">
-            <div class="mfc-cell"><strong>0</strong><span>Missing crew</span></div>
-            <div class="mfc-crew-detail"><p class="mfc-muted">All flights meet the A320 / A321 minimum crew.</p></div>
-          </div>`;
+    const crewTone = crew.error ? "" : (missing > 0 ? "cancel" : "");
+    const crewValue = crew.error ? "—" : missing;
+    const crewCell = `<div class="mfc-cell mfc-cell--wide ${crewTone}"><strong>${mfcEsc(crewValue)}</strong><span>${mfcEsc(mfcCrewShortageLabel(crew))}</span></div>`;
     this._renderShell("Airport departures", `
-      <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}</div>
-      ${crewHtml}
+      <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}${crewCell}</div>
     `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
