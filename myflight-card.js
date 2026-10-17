@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.20";
+const MFC_VERSION = "0.2.21";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -13,19 +13,49 @@ const MFC_TILE_DARK = "https://server.arcgisonline.com/ArcGIS/rest/services/Canv
 const MFC_CAT_COLOR = {
   flight: "#2563eb",
   standby: "#d97706",
-  off: "#64748b",
-  paid_leave: "#16a34a",
+  off: "#16a34a",
+  paid_leave: "#15803d",
   training: "#7c3aed",
   unknown: "#06b6d4",
 };
 const MFC_CAT_BG = {
   flight: "rgba(37,99,235,.12)",
   standby: "rgba(217,119,6,.12)",
-  off: "rgba(100,116,139,.12)",
-  paid_leave: "rgba(22,163,74,.12)",
+  off: "rgba(22,163,74,.16)",
+  paid_leave: "rgba(21,128,61,.12)",
   training: "rgba(124,58,237,.12)",
   unknown: "rgba(6,182,212,.12)",
 };
+const MFC_CAT_COLOR_DARK = {
+  flight: "#60a5fa",
+  standby: "#fbbf24",
+  off: "#4ade80",
+  paid_leave: "#86efac",
+  training: "#c4b5fd",
+  unknown: "#22d3ee",
+};
+const MFC_CAT_BG_DARK = {
+  flight: "rgba(96,165,250,.18)",
+  standby: "rgba(251,191,36,.16)",
+  off: "rgba(74,222,128,.22)",
+  paid_leave: "rgba(134,239,172,.16)",
+  training: "rgba(196,181,253,.16)",
+  unknown: "rgba(34,211,238,.16)",
+};
+
+function mfcCatPaint(cat, dark) {
+  const key = cat || "unknown";
+  if (dark) {
+    return {
+      color: MFC_CAT_COLOR_DARK[key] || MFC_CAT_COLOR_DARK.unknown,
+      bg: MFC_CAT_BG_DARK[key] || MFC_CAT_BG_DARK.unknown,
+    };
+  }
+  return {
+    color: MFC_CAT_COLOR[key] || MFC_CAT_COLOR.unknown,
+    bg: MFC_CAT_BG[key] || MFC_CAT_BG.unknown,
+  };
+}
 
 function mfcIsSnapshot(attrs) {
   if (!attrs || typeof attrs !== "object") return false;
@@ -536,7 +566,15 @@ function mfcStyles(dark, theme) {
     .mfc-board .late { color: ${late}; font-weight: 600; }
     .mfc-board .early { color: ${early}; font-weight: 600; }
     .mfc-board .cancel { color: ${magenta}; text-decoration: line-through; }
-    .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 8px; }
+    .mfc-cal-scroll {
+      max-height: min(62vh, 440px); overflow-y: auto; overflow-x: hidden;
+      -webkit-overflow-scrolling: touch; margin-top: 4px; padding-right: 2px;
+    }
+    .mfc-cal-month + .mfc-cal-month { margin-top: 12px; padding-top: 8px; border-top: 1px solid ${border}; }
+    .mfc-cal-month-title {
+      margin: 0 0 6px; font-size: 0.78rem; font-weight: 700; color: ${navy}; letter-spacing: -0.01em;
+    }
+    .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 0; }
     .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
     .mfc-cal-d {
       height: 64px; min-height: 64px; max-height: 64px; box-sizing: border-box;
@@ -559,7 +597,9 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-h { margin-bottom: 4px; gap: 6px; }
     .mfc.compact .mfc-title { font-size: 0.92rem; }
     .mfc.compact .mfc-sub { font-size: 0.72rem; }
-    .mfc.compact .mfc-cal { gap: 2px; margin-top: 4px; }
+    .mfc.compact .mfc-cal-scroll { max-height: min(55vh, 360px); }
+    .mfc.compact .mfc-cal-month-title { font-size: 0.7rem; margin-bottom: 4px; }
+    .mfc.compact .mfc-cal { gap: 2px; margin-top: 0; }
     .mfc.compact .mfc-cal-h { font-size: 0.6rem; padding: 0; }
     .mfc.compact .mfc-cal-d {
       height: 44px; min-height: 44px; max-height: 44px; padding: 2px 3px; font-size: 0.58rem; border-radius: 6px;
@@ -2074,19 +2114,20 @@ class MyFlightLiveBadgeCard extends MyFlightBaseCard {
 }
 
 class MyFlightRosterCard extends MyFlightBaseCard {
-  getCardSize() { return this._rosterCompact() ? 4 : 6; }
-  _render() {
-    const snap = this._snapshot();
-    if (!snap.ok) { this._renderMissing(); return; }
-    const a = snap.attrs;
-    const month = a.roster_month;
-    if (!month?.year) {
-      this._renderShell(mfcTitled("Roster", a), `<p class="mfc-empty">No roster loaded.</p>`);
-      return;
+  getCardSize() {
+    const months = this._rosterMonths();
+    const base = this._rosterCompact() ? 4 : 6;
+    return months.length > 1 ? base + 2 : base;
+  }
+  _rosterMonths() {
+    const month = this._snapshot().attrs?.roster_month;
+    if (!month?.year) return [];
+    if (Array.isArray(month.months) && month.months.length) {
+      return month.months.filter((m) => m?.year && m?.month);
     }
-    const weekStart = this._config.week_start === "sunday" ? "sunday" : "monday";
-    const details = this._rosterDetails();
-    const compact = this._rosterCompact();
+    return [month];
+  }
+  _monthGrid(month, { weekStart, details, compact, dark, showTitle }) {
     const labels = weekStart === "monday"
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -2103,20 +2144,57 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       const iso = `${month.year}-${String(month.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const row = byDate[iso];
       const col = (pad + day - 1) % 7;
-      const cat = row?.category || "unknown";
-      const color = MFC_CAT_COLOR[cat] || MFC_CAT_COLOR.unknown;
-      const bg = row ? (MFC_CAT_BG[cat] || MFC_CAT_BG.unknown) : "";
-      const style = row ? `style="background:${bg};border-color:${color};color:${color}"` : "";
+      const paint = row ? mfcCatPaint(row.category || "unknown", dark) : null;
+      const style = paint
+        ? `style="background:${paint.bg};border-color:${paint.color};color:${paint.color}"`
+        : "";
       const full = row ? (row.text || row.code || "") : "";
       const label = !row ? "" : (details ? full : mfcShortDutyLabel(row, compact));
       const today = iso === todayIso ? " today" : "";
       const weekendCls = weekend.includes(col) ? " weekend" : "";
-      cells.push(`<div class="mfc-cal-d${weekendCls}${today}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
+      const catCls = row?.category ? ` cat-${mfcEsc(row.category)}` : "";
+      cells.push(`<div class="mfc-cal-d${weekendCls}${today}${catCls}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
     }
-    const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+    return `
+      <div class="mfc-cal-month">
+        ${showTitle ? `<p class="mfc-cal-month-title">${mfcEsc(titleDate)}</p>` : ""}
+        <div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
+      </div>`;
+  }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const months = this._rosterMonths();
+    if (!months.length) {
+      this._renderShell(mfcTitled("Roster", a), `<p class="mfc-empty">No roster loaded.</p>`);
+      return;
+    }
+    const weekStart = this._config.week_start === "sunday" ? "sunday" : "monday";
+    const details = this._rosterDetails();
+    const compact = this._rosterCompact();
+    const dark = mfcIsDark(this._hass);
+    const multi = months.length > 1;
+    const grids = months.map((month, idx) => this._monthGrid(month, {
+      weekStart,
+      details,
+      compact,
+      dark,
+      showTitle: multi || idx > 0,
+    })).join("");
+    const subtitle = multi
+      ? `${months[0].year}-${String(months[0].month).padStart(2, "0")} → ${months[months.length - 1].year}-${String(months[months.length - 1].month).padStart(2, "0")}`
+      : new Date(months[0].year, months[0].month - 1, 1).toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      });
     this._renderShell(mfcTitled("Roster", a), `
-      <div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
-    `, { subtitle: titleDate, icon: true, compact });
+      <div class="mfc-cal-scroll">${grids}</div>
+    `, { subtitle, icon: true, compact });
   }
 }
 
