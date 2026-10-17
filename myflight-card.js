@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.22";
+const MFC_VERSION = "0.2.23";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -55,6 +55,19 @@ function mfcCatPaint(cat, dark) {
     color: MFC_CAT_COLOR[key] || MFC_CAT_COLOR.unknown,
     bg: MFC_CAT_BG[key] || MFC_CAT_BG.unknown,
   };
+}
+
+function mfcRosterCategory(row) {
+  const cat = String(row?.category || "unknown").toLowerCase();
+  if (cat === "off" || cat === "paid_leave") return cat;
+  const blob = `${row?.code || ""} ${row?.text || ""}`.toUpperCase();
+  if (/\bREST\b/.test(blob) || /\bOFF\b/.test(blob)) return "off";
+  return cat;
+}
+
+function mfcShiftYearMonth(year, month, delta) {
+  const idx = year * 12 + (month - 1) + delta;
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
 }
 
 function mfcIsSnapshot(attrs) {
@@ -784,7 +797,9 @@ function mfcStyles(dark, theme) {
       .mfc-fids-row.early .mfc-fids-lamp { animation: none; }
     }
     .mfc-cal-d.empty { background: transparent; border-color: transparent; }
+    .mfc-cal-d.outside { opacity: 0.62; }
     .mfc-cal-d.weekend { opacity: .85; }
+    .mfc-cal-d.outside.weekend { opacity: 0.5; }
     .mfc-badge { padding: 10px 12px; }
     .mfc-loading {
       display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
@@ -2167,7 +2182,7 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       year: "numeric",
     });
   }
-  _monthGrid(month, { weekStart, details, compact, dark }) {
+  _monthGrid(month, { weekStart, details, compact, dark, nextMonth }) {
     const labels = weekStart === "monday"
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -2176,7 +2191,9 @@ class MyFlightRosterCard extends MyFlightBaseCard {
     const last = new Date(month.year, month.month, 0).getDate();
     const byDate = {};
     (month.days || []).forEach((d) => { byDate[d.date] = d; });
-    const weekend = weekStart === "monday" ? [5, 6] : [0, 6];
+    const nextByDate = {};
+    (nextMonth?.days || []).forEach((d) => { nextByDate[d.date] = d; });
+    const weekendCols = weekStart === "monday" ? [5, 6] : [0, 6];
     const todayIso = mfcLocalIsoDate();
     const cells = [];
     for (let i = 0; i < pad; i += 1) cells.push(`<div class="mfc-cal-d empty"></div>`);
@@ -2184,16 +2201,35 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       const iso = `${month.year}-${String(month.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const row = byDate[iso];
       const col = (pad + day - 1) % 7;
-      const paint = row ? mfcCatPaint(row.category || "unknown", dark) : null;
+      const paint = row ? mfcCatPaint(mfcRosterCategory(row), dark) : null;
       const style = paint
         ? `style="background:${paint.bg};border-color:${paint.color};color:${paint.color}"`
         : "";
       const full = row ? (row.text || row.code || "") : "";
       const label = !row ? "" : (details ? full : mfcShortDutyLabel(row, compact));
       const today = iso === todayIso ? " today" : "";
-      const weekendCls = weekend.includes(col) ? " weekend" : "";
-      const catCls = row?.category ? ` cat-${mfcEsc(row.category)}` : "";
+      const weekendCls = weekendCols.includes(col) ? " weekend" : "";
+      const cat = row ? mfcRosterCategory(row) : "";
+      const catCls = cat ? ` cat-${mfcEsc(cat)}` : "";
       cells.push(`<div class="mfc-cal-d${weekendCls}${today}${catCls}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
+    }
+    const trail = (7 - ((pad + last) % 7)) % 7;
+    const next = nextMonth || mfcShiftYearMonth(month.year, month.month, 1);
+    for (let day = 1; day <= trail; day += 1) {
+      const iso = `${next.year}-${String(next.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const row = nextByDate[iso];
+      const col = (pad + last + day - 1) % 7;
+      const paint = row ? mfcCatPaint(mfcRosterCategory(row), dark) : null;
+      const style = paint
+        ? `style="background:${paint.bg};border-color:${paint.color};color:${paint.color}"`
+        : "";
+      const full = row ? (row.text || row.code || "") : "";
+      const label = !row ? "" : (details ? full : mfcShortDutyLabel(row, compact));
+      const today = iso === todayIso ? " today" : "";
+      const weekendCls = weekendCols.includes(col) ? " weekend" : "";
+      const cat = row ? mfcRosterCategory(row) : "";
+      const catCls = cat ? ` cat-${mfcEsc(cat)}` : "";
+      cells.push(`<div class="mfc-cal-d outside${weekendCls}${today}${catCls}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
     }
     return `<div class="mfc-cal-page"><div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div></div>`;
   }
@@ -2267,11 +2303,12 @@ class MyFlightRosterCard extends MyFlightBaseCard {
     const details = this._rosterDetails();
     const compact = this._rosterCompact();
     const dark = mfcIsDark(this._hass);
-    const pages = months.map((month) => this._monthGrid(month, {
+    const pages = months.map((month, idx) => this._monthGrid(month, {
       weekStart,
       details,
       compact,
       dark,
+      nextMonth: months[idx + 1] || null,
     })).join("");
     const active = months[index];
     const headerExtra = `<div class="mfc-h-toggles">${this._rosterNav(months, index)}${mfcTimesLegend(a)}</div>`;
