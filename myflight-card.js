@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.21";
+const MFC_VERSION = "0.2.22";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -29,16 +29,16 @@ const MFC_CAT_BG = {
 const MFC_CAT_COLOR_DARK = {
   flight: "#60a5fa",
   standby: "#fbbf24",
-  off: "#4ade80",
-  paid_leave: "#86efac",
+  off: "#86efac",
+  paid_leave: "#bbf7d0",
   training: "#c4b5fd",
   unknown: "#22d3ee",
 };
 const MFC_CAT_BG_DARK = {
   flight: "rgba(96,165,250,.18)",
   standby: "rgba(251,191,36,.16)",
-  off: "rgba(74,222,128,.22)",
-  paid_leave: "rgba(134,239,172,.16)",
+  off: "rgba(134,239,172,.28)",
+  paid_leave: "rgba(187,247,208,.18)",
   training: "rgba(196,181,253,.16)",
   unknown: "rgba(34,211,238,.16)",
 };
@@ -566,14 +566,30 @@ function mfcStyles(dark, theme) {
     .mfc-board .late { color: ${late}; font-weight: 600; }
     .mfc-board .early { color: ${early}; font-weight: 600; }
     .mfc-board .cancel { color: ${magenta}; text-decoration: line-through; }
-    .mfc-cal-scroll {
-      max-height: min(62vh, 440px); overflow-y: auto; overflow-x: hidden;
-      -webkit-overflow-scrolling: touch; margin-top: 4px; padding-right: 2px;
+    .mfc-cal-viewport {
+      overflow: hidden; touch-action: pan-y; margin-top: 2px; user-select: none;
     }
-    .mfc-cal-month + .mfc-cal-month { margin-top: 12px; padding-top: 8px; border-top: 1px solid ${border}; }
-    .mfc-cal-month-title {
-      margin: 0 0 6px; font-size: 0.78rem; font-weight: 700; color: ${navy}; letter-spacing: -0.01em;
+    .mfc-cal-track {
+      display: flex; width: 100%;
+      transition: transform 0.28s ease;
+      will-change: transform;
     }
+    .mfc-cal-page {
+      flex: 0 0 100%; width: 100%; min-width: 100%; box-sizing: border-box;
+    }
+    .mfc-cal-nav {
+      display: flex; align-items: center; gap: 2px;
+    }
+    .mfc-cal-nav button {
+      font: inherit; width: 28px; height: 28px; min-height: 28px; padding: 0;
+      border-radius: 8px; border: 1px solid ${border}; background: ${bg}; color: ${navy};
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; font-weight: 700; line-height: 1;
+    }
+    .mfc-cal-nav button:disabled {
+      opacity: 0.35; cursor: default;
+    }
+    .mfc-cal-nav button:not(:disabled):active { color: ${magenta}; border-color: ${magenta}; }
     .mfc-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 0; }
     .mfc-cal-h { text-align: center; font-size: 0.68rem; color: ${muted}; font-weight: 600; padding: 2px 0; }
     .mfc-cal-d {
@@ -597,8 +613,7 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-h { margin-bottom: 4px; gap: 6px; }
     .mfc.compact .mfc-title { font-size: 0.92rem; }
     .mfc.compact .mfc-sub { font-size: 0.72rem; }
-    .mfc.compact .mfc-cal-scroll { max-height: min(55vh, 360px); }
-    .mfc.compact .mfc-cal-month-title { font-size: 0.7rem; margin-bottom: 4px; }
+    .mfc.compact .mfc-cal-nav button { width: 26px; height: 26px; min-height: 26px; }
     .mfc.compact .mfc-cal { gap: 2px; margin-top: 0; }
     .mfc.compact .mfc-cal-h { font-size: 0.6rem; padding: 0; }
     .mfc.compact .mfc-cal-d {
@@ -2114,11 +2129,7 @@ class MyFlightLiveBadgeCard extends MyFlightBaseCard {
 }
 
 class MyFlightRosterCard extends MyFlightBaseCard {
-  getCardSize() {
-    const months = this._rosterMonths();
-    const base = this._rosterCompact() ? 4 : 6;
-    return months.length > 1 ? base + 2 : base;
-  }
+  getCardSize() { return this._rosterCompact() ? 4 : 6; }
   _rosterMonths() {
     const month = this._snapshot().attrs?.roster_month;
     if (!month?.year) return [];
@@ -2127,7 +2138,36 @@ class MyFlightRosterCard extends MyFlightBaseCard {
     }
     return [month];
   }
-  _monthGrid(month, { weekStart, details, compact, dark, showTitle }) {
+  _monthKey(month) {
+    return `${month.year}-${String(month.month).padStart(2, "0")}`;
+  }
+  _ensureRosterIndex(months) {
+    const keys = months.map((m) => this._monthKey(m)).join(",");
+    if (this._rosterKeys !== keys) {
+      this._rosterKeys = keys;
+      const cur = this._snapshot().attrs?.roster_month;
+      const idx = months.findIndex((m) => m.year === cur?.year && m.month === cur?.month);
+      this._rosterIndex = idx >= 0 ? idx : 0;
+    }
+    this._rosterIndex = Math.max(0, Math.min(months.length - 1, Number(this._rosterIndex) || 0));
+  }
+  _rosterShift(delta) {
+    const months = this._rosterMonths();
+    if (!months.length) return;
+    this._ensureRosterIndex(months);
+    const next = this._rosterIndex + delta;
+    if (next < 0 || next >= months.length) return;
+    this._rosterIndex = next;
+    this._hassKey = "";
+    this._render();
+  }
+  _monthLabel(month) {
+    return new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+  }
+  _monthGrid(month, { weekStart, details, compact, dark }) {
     const labels = weekStart === "monday"
       ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
       : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -2155,15 +2195,62 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       const catCls = row?.category ? ` cat-${mfcEsc(row.category)}` : "";
       cells.push(`<div class="mfc-cal-d${weekendCls}${today}${catCls}" ${style}><span class="num">${day}</span>${label ? `<span class="lbl" title="${mfcEsc(full)}">${mfcCalLabelHtml(label)}</span>` : ""}</div>`);
     }
-    const titleDate = new Date(month.year, month.month - 1, 1).toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
+    return `<div class="mfc-cal-page"><div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div></div>`;
+  }
+  _rosterNav(months, index) {
+    if (months.length < 2) return "";
+    return `<div class="mfc-cal-nav">
+      <button type="button" data-roster-nav="-1" aria-label="Previous month" ${index <= 0 ? "disabled" : ""}>‹</button>
+      <button type="button" data-roster-nav="1" aria-label="Next month" ${index >= months.length - 1 ? "disabled" : ""}>›</button>
+    </div>`;
+  }
+  _bindRosterControls() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const nav = root.querySelector(".mfc-cal-nav");
+    if (nav && !nav._mfcBound) {
+      nav._mfcBound = true;
+      nav.addEventListener("click", (event) => {
+        const btn = event.target?.closest?.("[data-roster-nav]");
+        if (!btn || btn.disabled) return;
+        this._rosterShift(Number(btn.getAttribute("data-roster-nav")) || 0);
+      });
+    }
+    const viewport = root.querySelector(".mfc-cal-viewport");
+    if (!viewport || viewport._mfcSwipeBound) return;
+    viewport._mfcSwipeBound = true;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    const begin = (x, y) => {
+      startX = x;
+      startY = y;
+      tracking = true;
+    };
+    const end = (x, y) => {
+      if (!tracking) return;
+      tracking = false;
+      const dx = x - startX;
+      const dy = y - startY;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
+      this._rosterShift(dx < 0 ? 1 : -1);
+    };
+    viewport.addEventListener("touchstart", (e) => {
+      const t = e.changedTouches?.[0];
+      if (t) begin(t.clientX, t.clientY);
+    }, { passive: true });
+    viewport.addEventListener("touchend", (e) => {
+      const t = e.changedTouches?.[0];
+      if (t) end(t.clientX, t.clientY);
+    }, { passive: true });
+    viewport.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return;
+      begin(e.clientX, e.clientY);
     });
-    return `
-      <div class="mfc-cal-month">
-        ${showTitle ? `<p class="mfc-cal-month-title">${mfcEsc(titleDate)}</p>` : ""}
-        <div class="mfc-cal ${details ? "mfc-cal--details" : "mfc-cal--codes"}">${labels.map((l) => `<div class="mfc-cal-h">${l}</div>`).join("")}${cells.join("")}</div>
-      </div>`;
+    viewport.addEventListener("pointerup", (e) => {
+      if (e.pointerType === "touch") return;
+      end(e.clientX, e.clientY);
+    });
   }
   _render() {
     const snap = this._snapshot();
@@ -2174,27 +2261,31 @@ class MyFlightRosterCard extends MyFlightBaseCard {
       this._renderShell(mfcTitled("Roster", a), `<p class="mfc-empty">No roster loaded.</p>`);
       return;
     }
+    this._ensureRosterIndex(months);
+    const index = this._rosterIndex;
     const weekStart = this._config.week_start === "sunday" ? "sunday" : "monday";
     const details = this._rosterDetails();
     const compact = this._rosterCompact();
     const dark = mfcIsDark(this._hass);
-    const multi = months.length > 1;
-    const grids = months.map((month, idx) => this._monthGrid(month, {
+    const pages = months.map((month) => this._monthGrid(month, {
       weekStart,
       details,
       compact,
       dark,
-      showTitle: multi || idx > 0,
     })).join("");
-    const subtitle = multi
-      ? `${months[0].year}-${String(months[0].month).padStart(2, "0")} → ${months[months.length - 1].year}-${String(months[months.length - 1].month).padStart(2, "0")}`
-      : new Date(months[0].year, months[0].month - 1, 1).toLocaleDateString(undefined, {
-        month: "long",
-        year: "numeric",
-      });
+    const active = months[index];
+    const headerExtra = `<div class="mfc-h-toggles">${this._rosterNav(months, index)}${mfcTimesLegend(a)}</div>`;
     this._renderShell(mfcTitled("Roster", a), `
-      <div class="mfc-cal-scroll">${grids}</div>
-    `, { subtitle, icon: true, compact });
+      <div class="mfc-cal-viewport">
+        <div class="mfc-cal-track" style="transform:translateX(-${index * 100}%)">${pages}</div>
+      </div>
+    `, {
+      subtitle: this._monthLabel(active),
+      icon: true,
+      compact,
+      headerExtra,
+    });
+    this._bindRosterControls();
   }
 }
 
