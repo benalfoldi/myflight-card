@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.18";
+const MFC_VERSION = "0.2.19";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -99,9 +99,61 @@ function mfcCrewShortageLabel(crew) {
   return crew?.stale ? `${label} (cached)` : label;
 }
 
-function mfcLoadingBanner(attrs) {
-  if (!attrs?.live_loading) return "";
+function mfcLoadingBanner(attrs, opts) {
+  const options = opts || {};
+  if (options.missionOnly) {
+    if (!attrs?.mission_loading && !(attrs?.live_pending || []).some((k) => k === "mission_track" || k === "rotation")) {
+      return "";
+    }
+  } else if (!attrs?.live_loading) {
+    return "";
+  }
   return `<div class="mfc-loading" role="status"><span class="mfc-loading-dot" aria-hidden="true"></span>Updating live data…</div>`;
+}
+
+function mfcUsefulClock(value) {
+  const clock = mfcClock(value);
+  if (!clock || clock === "—") return "";
+  return clock;
+}
+
+function mfcDutyRouteStrip(duty) {
+  const legs = Array.isArray(duty?.legs) ? duty.legs : [];
+  if (!legs.length) return "";
+  const codes = [];
+  for (const leg of legs) {
+    const dep = String(leg.departure || "").trim().toUpperCase();
+    const arr = String(leg.arrival || "").trim().toUpperCase();
+    if (dep && (!codes.length || codes[codes.length - 1] !== dep)) codes.push(dep);
+    if (arr) codes.push(arr);
+  }
+  return codes.length > 1 ? codes.join("-") : "";
+}
+
+function mfcMissionPhase(mission, duty) {
+  const phase = String(mission?.phase || "").toLowerCase();
+  if (phase === "prep" || phase === "live" || phase === "off") return phase;
+  if (!mfcIsFlightDuty(duty) && !mission?.leg) return "off";
+  const status = String(mission?.status || "").toLowerCase();
+  if (status === "en_route" || status === "landed") return "live";
+  const net = mission?.network || {};
+  if (net.departure_is_actual || net.arrival_is_actual) return "live";
+  if (Number(mission?.progress) > 0) return "live";
+  const sectors = mission?.sectors || [];
+  if (sectors.some((sec) => Number(sec?.progress) >= 1
+    || sec?.network?.departure_is_actual
+    || sec?.network?.arrival_is_actual)) {
+    return "live";
+  }
+  return mfcIsFlightDuty(duty) || mission?.leg ? "prep" : "off";
+}
+
+function mfcMapUseful(map) {
+  if (!map) return null;
+  if (map.found || map.latitude != null || map.longitude != null) return map;
+  if (map.departure || map.arrival) return map;
+  if (Array.isArray(map.trail) && map.trail.length) return map;
+  return null;
 }
 
 function mfcEntityLoading(snap) {
@@ -1596,9 +1648,23 @@ class MyFlightMissionCard extends MyFlightBaseCard {
 }
 
 class MyFlightMissionLightCard extends MyFlightBaseCard {
-  getCardSize() { return 4; }
+  getCardSize() {
+    const a = this._snapshot().attrs || {};
+    const duty = a.mission?.duty || a.next_duty;
+    const phase = mfcMissionPhase(a.mission, duty);
+    if (phase === "off") return 2;
+    if (phase === "prep") return 3;
+    return 4;
+  }
   getGridOptions() {
-    return { columns: 12, rows: 4, min_rows: 3 };
+    const size = this.getCardSize();
+    return { columns: 12, rows: "auto", min_rows: Math.max(2, size - 1), max_rows: 6 };
+  }
+  _missionLoading(body, attrs, flightDuty) {
+    const banner = flightDuty
+      ? mfcLoadingBanner(attrs, { missionOnly: true })
+      : "";
+    return `${banner}${body || ""}`;
   }
   _render() {
     const snap = this._snapshot();
@@ -1607,14 +1673,33 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const mission = a.mission;
     const duty = mission?.duty || a.next_duty;
     if (!mission && !duty) {
-      this._renderShell(mfcTitled("Your mission", a), this._withLoading(`<p class="mfc-empty">No flight duty loaded.</p>`, a), {
+      this._renderShell(mfcTitled("Your mission", a), `<p class="mfc-empty">No flight duty loaded.</p>`, {
         compact: true,
         icon: true,
       });
       return;
     }
-    const flightDuty = mfcIsFlightDuty(duty) || Boolean(mission?.leg);
-    const checkIn = duty?.check_in || duty?.report_time;
+    const phase = mfcMissionPhase(mission, duty);
+    const flightDuty = phase !== "off";
+    const title = mfcTitled("Your mission", a);
+    const header = { icon: true, compact: true, headerExtra: mfcTimesLegend(a) };
+
+    if (phase === "off") {
+      const checkIn = mfcUsefulClock(duty?.check_in || duty?.report_time);
+      const checkOut = mfcUsefulClock(duty?.check_out || duty?.debrief_time);
+      const when = [
+        checkIn ? `Report ${checkIn}` : "",
+        checkOut ? `Until ${checkOut}` : "",
+      ].filter(Boolean).join(" · ");
+      this._renderShell(title, `
+        <p class="mfc-stat"><strong>${mfcEsc(duty?.duty_text || duty?.duty_roster_code || "Duty")}</strong>
+          <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date) || "")}</span></p>
+        ${when ? `<p class="mfc-muted">${mfcEsc(when)}</p>` : ""}
+      `, { ...header, subtitle: duty?.label || "" });
+      return;
+    }
+
+    const checkIn = mfcUsefulClock(duty?.check_in || duty?.report_time);
     const reg = mission?.registration || duty?.legs?.[0]?.registration || "";
     const crew = mfcCrewLine(duty?.crew || []);
     const prev = mission?.previous;
@@ -1623,41 +1708,65 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const active = (mission?.sectors || []).find((sec) => sec.active) || null;
     const activeNet = active?.network || net;
     const activeLeg = active?.leg || mission?.leg;
-    const progress = flightDuty
-      ? mfcProgressFromLeg(activeLeg, {
-          ...activeNet,
-          progress: mission?.progress ?? active?.progress,
-          times: mission?.times,
-        })
-      : null;
+    const route = mfcDutyRouteStrip(duty);
+    const progress = mfcProgressFromLeg(activeLeg, {
+      ...activeNet,
+      progress: mission?.progress ?? active?.progress,
+      times: mission?.times,
+    });
+
+    if (phase === "live") {
+      const liveMeta = [
+        reg ? `<span>Tail <strong>${mfcEsc(reg)}</strong></span>` : "",
+        activeNet?.flight_number
+          ? `<span>Flt <strong>${mfcEsc(activeNet.flight_number)}</strong></span>`
+          : "",
+      ].filter(Boolean).join("");
+      const between = String(mission?.status || "").toLowerCase() === "landed"
+        && mission?.next
+        ? mfcNeighbor("Next", mission.next, "dep", { variant: "outbound", turnaround: mission?.turnaround_after })
+        : "";
+      this._renderShell(title, this._missionLoading(`
+        ${route ? `<p class="mfc-muted">${mfcEsc(route)}</p>` : ""}
+        ${liveMeta ? `<div class="mfc-light-meta">${liveMeta}</div>` : ""}
+        ${progress ? mfcProgress(progress) : ""}
+        ${between}
+      `, a, true), {
+        ...header,
+        status: mission?.status || "",
+        subtitle: duty?.duty_text || "",
+        map: mfcMapUseful(mission?.map),
+      });
+      return;
+    }
+
+    // Prep: home briefing before first sector moves (also next-day after checkout+1h).
+    const firstLeg = duty?.legs?.[0] || activeLeg;
     const landClock = mfcNetClock(activeNet, "arr")
-      || (activeLeg?.sta ? `STA ${mfcClock(activeLeg.sta)}` : "");
+      || (firstLeg?.sta ? `STA ${mfcUsefulClock(firstLeg.sta)}` : "");
     const inbound = prev?.departure
       ? `${prev.flight_number ? `${prev.flight_number} · ` : ""}${prev.departure} → ${prev.arrival}`
       : "";
     const inboundClock = prev ? mfcNetClock(prev, "arr") : "";
     const meta = [
-      checkIn ? `<span>Check-in <strong>${mfcEsc(mfcClock(checkIn))}</strong></span>` : "",
+      checkIn ? `<span>Check-in <strong>${mfcEsc(checkIn)}</strong></span>` : "",
       reg ? `<span>Tail <strong>${mfcEsc(reg)}</strong></span>` : "",
-      landClock ? `<span>Lands <strong>${mfcEsc(landClock)}</strong></span>` : "",
+      landClock && !landClock.endsWith("—") ? `<span>Lands <strong>${mfcEsc(landClock)}</strong></span>` : "",
     ].filter(Boolean).join("");
-    this._renderShell(mfcTitled("Your mission", a), this._withLoading(`
-      <div class="mfc-light-meta">${meta}</div>
+    this._renderShell(title, this._missionLoading(`
+      ${route ? `<p class="mfc-muted">${mfcEsc(route)}</p>` : ""}
+      ${meta ? `<div class="mfc-light-meta">${meta}</div>` : ""}
       ${inbound ? `<div class="mfc-sector inbound">
         <span class="mfc-sector-k">Coming from</span>
         <span class="mfc-sector-v"><strong>${mfcEsc(inbound)}</strong>
           ${inboundClock ? `<span class="mfc-muted">${mfcEsc(inboundClock)}</span>` : ""}</span>
         ${ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : ""}
       </div>` : (ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : "")}
-      ${progress ? mfcProgress(progress) : `<p class="mfc-stat"><strong>${mfcEsc(duty?.duty_text || "Duty")}</strong></p>`}
       ${crew}
-    `, a), {
-      map: flightDuty ? mission?.map : null,
-      status: mission?.status || "",
+    `, a, true), {
+      ...header,
       subtitle: duty?.duty_text || mfcDateLabel(duty?.date) || "",
-      icon: true,
-      compact: true,
-      headerExtra: mfcTimesLegend(a),
+      map: null,
     });
   }
 }
@@ -2024,7 +2133,7 @@ class MyFlightRosterChangesCard extends MyFlightBaseCard {
 const MFC_CARD_TYPES = [
   ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next", "Next scheduled item"],
   ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
-  ["myflight-mission-light-card", MyFlightMissionLightCard, "myFlight Mission light", "Compact check-in, tail, inbound, turnaround, crew"],
+  ["myflight-mission-light-card", MyFlightMissionLightCard, "myFlight Mission light", "Prep briefing, then live sector follow through duty"],
   ["myflight-live-flight-card", MyFlightLiveFlightCard, "myFlight Live", "Own live sector with map"],
   ["myflight-live-badge-card", MyFlightLiveBadgeCard, "myFlight Live badge", "Own live progress, no map"],
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
