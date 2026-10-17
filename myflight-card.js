@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.19";
+const MFC_VERSION = "0.2.20";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -117,9 +117,9 @@ function mfcUsefulClock(value) {
   return clock;
 }
 
-function mfcDutyRouteStrip(duty) {
+function mfcDutyRouteCodes(duty) {
   const legs = Array.isArray(duty?.legs) ? duty.legs : [];
-  if (!legs.length) return "";
+  if (!legs.length) return [];
   const codes = [];
   for (const leg of legs) {
     const dep = String(leg.departure || "").trim().toUpperCase();
@@ -127,7 +127,53 @@ function mfcDutyRouteStrip(duty) {
     if (dep && (!codes.length || codes[codes.length - 1] !== dep)) codes.push(dep);
     if (arr) codes.push(arr);
   }
+  return codes;
+}
+
+function mfcDutyRouteStrip(duty) {
+  const codes = mfcDutyRouteCodes(duty);
   return codes.length > 1 ? codes.join("-") : "";
+}
+
+function mfcActiveLegIndex(duty, activeLeg) {
+  const legs = Array.isArray(duty?.legs) ? duty.legs : [];
+  if (!legs.length || !activeLeg) return -1;
+  const dep = String(activeLeg.departure || "").trim().toUpperCase();
+  const arr = String(activeLeg.arrival || "").trim().toUpperCase();
+  const num = String(activeLeg.flight_number || "").replace(/\D/g, "");
+  let fallback = -1;
+  for (let i = 0; i < legs.length; i += 1) {
+    const leg = legs[i];
+    const lDep = String(leg.departure || "").trim().toUpperCase();
+    const lArr = String(leg.arrival || "").trim().toUpperCase();
+    if (lDep !== dep || lArr !== arr) continue;
+    const lNum = String(leg.flight_number || "").replace(/\D/g, "");
+    if (num && lNum && num === lNum) return i;
+    if (fallback < 0) fallback = i;
+  }
+  return fallback;
+}
+
+/** Full duty route with the active sector pair highlighted (e.g. BUD-LTN-**LTN-BUD**-BER-BUD). */
+function mfcDutyRouteHtml(duty, activeLeg) {
+  const codes = mfcDutyRouteCodes(duty);
+  if (codes.length < 2) return "";
+  const legIdx = mfcActiveLegIndex(duty, activeLeg);
+  const activeAt = legIdx >= 0 ? legIdx : -1;
+  if (activeAt < 0 || activeAt >= codes.length - 1) {
+    return `<span class="mfc-route">${mfcEsc(codes.join("-"))}</span>`;
+  }
+  const before = codes.slice(0, activeAt).join("-");
+  const now = `${codes[activeAt]}-${codes[activeAt + 1]}`;
+  const after = codes.slice(activeAt + 2).join("-");
+  return `<span class="mfc-route">${before ? `${mfcEsc(before)}-` : ""}<span class="mfc-route-now">${mfcEsc(now)}</span>${after ? `-${mfcEsc(after)}` : ""}</span>`;
+}
+
+function mfcMissionHeaderExtra(attrs, duty, activeLeg) {
+  const route = mfcDutyRouteHtml(duty, activeLeg);
+  const tz = mfcTimesLegend(attrs);
+  if (!route && !tz) return "";
+  return `<div class="mfc-h-toggles">${route}${tz}</div>`;
 }
 
 function mfcMissionPhase(mission, duty) {
@@ -404,6 +450,21 @@ function mfcStyles(dark, theme) {
       border-color: rgba(13, 148, 136, 0.4);
     }
     .mfc-eta { margin: 8px 0 0; font-size: 0.92rem; font-weight: 700; color: ${navy}; }
+    .mfc-eta-row {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 6px 10px; margin-top: 6px;
+    }
+    .mfc-eta-row .mfc-eta { margin: 0; }
+    .mfc-eta-row .mfc-chips { margin-top: 0; }
+    .mfc-route {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+      color: ${muted}; text-align: right; max-width: 11rem; line-height: 1.25;
+      word-break: break-word;
+    }
+    .mfc-route-now {
+      color: ${magenta}; font-weight: 800;
+      text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px;
+    }
     .mfc-toggle { display: flex; border: 1px solid ${border}; border-radius: 8px; overflow: hidden; }
     .mfc-toggle button {
       font: inherit; font-size: 0.72rem; font-weight: 700; padding: 6px 10px;
@@ -515,13 +576,18 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-eta { margin: 4px 0 0; font-size: 0.82rem; }
     .mfc.compact .mfc-list { margin-top: 4px; font-size: 0.78rem; line-height: 1.3; }
     .mfc.compact .mfc-list li + li { margin-top: 1px; }
-    .mfc.compact .mfc-map { height: 168px; margin-top: 8px; border-radius: 10px; }
+    .mfc.compact .mfc-map { height: 132px; margin-top: 6px; border-radius: 10px; }
     .mfc.compact .mfc-crew { margin: 6px 0 0; font-size: 0.72rem; line-height: 1.35; }
     .mfc.compact .mfc-status { margin-top: 2px; padding: 2px 8px; font-size: 0.7rem; }
     .mfc.compact .mfc-ends { font-size: 0.75rem; }
     .mfc.compact .mfc-times { font-size: 0.7rem; }
-    .mfc.compact .mfc-progress { height: 6px; margin: 6px 0 4px; }
+    .mfc.compact .mfc-progress { height: 6px; margin: 4px 0 2px; }
     .mfc.compact .mfc-plane { width: 16px; height: 16px; }
+    .mfc.compact .mfc-eta { font-size: 0.8rem; }
+    .mfc.compact .mfc-eta-row { margin-top: 4px; gap: 4px 8px; }
+    .mfc.compact .mfc-route { font-size: 0.62rem; max-width: 10.5rem; }
+    .mfc.compact .mfc-h { margin-bottom: 2px; }
+    .mfc.compact .mfc-light-meta { margin: 0 0 2px; font-size: 0.76rem; gap: 4px 10px; }
     .mfc-sector { margin-top: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid ${border}; }
     .mfc-sector.inbound {
       background: color-mix(in srgb, ${navyFill} 8%, ${card});
@@ -687,7 +753,9 @@ function mfcStyles(dark, theme) {
 
 function mfcProgress(display, opts) {
   if (!display || !display.departure) return "";
-  const skipEnds = Boolean(opts && opts.skipEnds);
+  const options = opts || {};
+  const skipEnds = Boolean(options.skipEnds);
+  const inlineDelays = Boolean(options.inlineDelays);
   const pct = Math.round(Math.max(0, Math.min(1, Number(display.progress) || 0)) * 100);
   const times = display.times || {};
   const leftLabel = times.dep_label || display.leftTimeLabel || "STD";
@@ -701,6 +769,20 @@ function mfcProgress(display, opts) {
   const arrChip = display.arrDelayText && display.arrDelayText !== "On time"
     ? `<span class="mfc-chip ${mfcEsc(display.arrDelayTone || "")}">Arr · ${mfcEsc(display.arrDelayText)}</span>`
     : "";
+  const chips = `${depChip}${arrChip}`;
+  const etaAttrs = `class="mfc-eta" data-eta-at="${mfcEsc(times.eta_at || "")}" data-mins="${times.eta_in_minutes ?? ""}" data-arr-label="${mfcEsc(times.arr_label || "ETA")}"`;
+  let footer = "";
+  if (inlineDelays && (eta || chips)) {
+    footer = `<div class="mfc-eta-row">
+      ${eta ? `<p ${etaAttrs}>${mfcEsc(eta)}</p>` : "<span></span>"}
+      ${chips ? `<div class="mfc-chips">${chips}</div>` : ""}
+    </div>`;
+  } else {
+    footer = `
+      ${eta ? `<p ${etaAttrs}>${mfcEsc(eta)}</p>` : ""}
+      ${chips ? `<div class="mfc-chips">${chips}</div>` : ""}
+    `;
+  }
   return `
     ${skipEnds ? "" : `<div class="mfc-ends"><span>${mfcEsc(display.departure)}</span><span>${mfcEsc(display.arrival)}</span></div>`}
     <div class="mfc-progress" style="--p:${pct}%">
@@ -711,8 +793,7 @@ function mfcProgress(display, opts) {
       <span>${mfcEsc(leftLabel)} ${mfcEsc(mfcClock(leftTime))}</span>
       <span>${mfcEsc(rightLabel)} ${mfcEsc(mfcClock(rightTime))}</span>
     </div>
-    ${eta ? `<p class="mfc-eta" data-eta-at="${mfcEsc(times.eta_at || "")}" data-mins="${times.eta_in_minutes ?? ""}" data-arr-label="${mfcEsc(times.arr_label || "ETA")}">${mfcEsc(eta)}</p>` : ""}
-    ${(depChip || arrChip) ? `<div class="mfc-chips">${depChip}${arrChip}</div>` : ""}
+    ${footer}
   `;
 }
 
@@ -1682,7 +1763,6 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const phase = mfcMissionPhase(mission, duty);
     const flightDuty = phase !== "off";
     const title = mfcTitled("Your mission", a);
-    const header = { icon: true, compact: true, headerExtra: mfcTimesLegend(a) };
 
     if (phase === "off") {
       const checkIn = mfcUsefulClock(duty?.check_in || duty?.report_time);
@@ -1695,7 +1775,7 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
         <p class="mfc-stat"><strong>${mfcEsc(duty?.duty_text || duty?.duty_roster_code || "Duty")}</strong>
           <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date) || "")}</span></p>
         ${when ? `<p class="mfc-muted">${mfcEsc(when)}</p>` : ""}
-      `, { ...header, subtitle: duty?.label || "" });
+      `, { icon: true, compact: true, headerExtra: mfcTimesLegend(a), subtitle: duty?.label || "" });
       return;
     }
 
@@ -1708,7 +1788,13 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const active = (mission?.sectors || []).find((sec) => sec.active) || null;
     const activeNet = active?.network || net;
     const activeLeg = active?.leg || mission?.leg;
-    const route = mfcDutyRouteStrip(duty);
+    const routeStrip = mfcDutyRouteStrip(duty);
+    const dutyText = String(duty?.duty_text || "").trim();
+    // Avoid repeating the same airport chain under the title when it lives in the header.
+    const subtitle = (dutyText && dutyText.replace(/\s+/g, "") !== routeStrip)
+      ? dutyText
+      : "";
+    const headerExtra = mfcMissionHeaderExtra(a, duty, activeLeg);
     const progress = mfcProgressFromLeg(activeLeg, {
       ...activeNet,
       progress: mission?.progress ?? active?.progress,
@@ -1727,14 +1813,15 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
         ? mfcNeighbor("Next", mission.next, "dep", { variant: "outbound", turnaround: mission?.turnaround_after })
         : "";
       this._renderShell(title, this._missionLoading(`
-        ${route ? `<p class="mfc-muted">${mfcEsc(route)}</p>` : ""}
         ${liveMeta ? `<div class="mfc-light-meta">${liveMeta}</div>` : ""}
-        ${progress ? mfcProgress(progress) : ""}
+        ${progress ? mfcProgress(progress, { inlineDelays: true }) : ""}
         ${between}
       `, a, true), {
-        ...header,
+        icon: true,
+        compact: true,
+        headerExtra,
         status: mission?.status || "",
-        subtitle: duty?.duty_text || "",
+        subtitle,
         map: mfcMapUseful(mission?.map),
       });
       return;
@@ -1754,7 +1841,6 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
       landClock && !landClock.endsWith("—") ? `<span>Lands <strong>${mfcEsc(landClock)}</strong></span>` : "",
     ].filter(Boolean).join("");
     this._renderShell(title, this._missionLoading(`
-      ${route ? `<p class="mfc-muted">${mfcEsc(route)}</p>` : ""}
       ${meta ? `<div class="mfc-light-meta">${meta}</div>` : ""}
       ${inbound ? `<div class="mfc-sector inbound">
         <span class="mfc-sector-k">Coming from</span>
@@ -1764,8 +1850,10 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
       </div>` : (ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : "")}
       ${crew}
     `, a, true), {
-      ...header,
-      subtitle: duty?.duty_text || mfcDateLabel(duty?.date) || "",
+      icon: true,
+      compact: true,
+      headerExtra,
+      subtitle: subtitle || mfcDateLabel(duty?.date) || "",
       map: null,
     });
   }
