@@ -1,14 +1,15 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.16";
+const MFC_VERSION = "0.2.18";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
 const MFC_PLANE_PNG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="M21 16v-2l-8-5V3.5A1.5 1.5 0 0 0 11.5 2 1.5 1.5 0 0 0 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>')}`;
 const MFC_WX_KEY = "mfc-map-weather";
-const MFC_TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-const MFC_TILE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// Esri tiles (CARTO free basemaps watermark "API KEY REQUIRED" without a key).
+const MFC_TILE_LIGHT = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+const MFC_TILE_DARK = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
 const MFC_CAT_COLOR = {
   flight: "#2563eb",
   standby: "#d97706",
@@ -85,16 +86,27 @@ function mfcEsc(value) {
 }
 
 function mfcCrewShortageLabel(crew) {
-  if (crew?.error) return String(crew.error);
+  if (crew?.loading) return "Checking crew…";
+  if (crew?.error && !crew?.stale) return String(crew.error);
   const missing = Number(crew?.flights || 0);
-  if (!missing) return "Missing crew";
+  if (!missing) return crew?.stale ? "Crew OK (cached)" : "Missing crew";
   const bits = [];
   if (crew.cp) bits.push(`${crew.cp} CP`);
   if (crew.fo) bits.push(`${crew.fo} FO`);
   if (crew.sc) bits.push(`${crew.sc} SC`);
   if (crew.ca) bits.push(`${crew.ca} CA`);
-  if (!bits.length) return "Missing crew";
-  return `${bits.join(" · ")} missing`;
+  const label = bits.length ? `${bits.join(" · ")} missing` : "Missing crew";
+  return crew?.stale ? `${label} (cached)` : label;
+}
+
+function mfcLoadingBanner(attrs) {
+  if (!attrs?.live_loading) return "";
+  return `<div class="mfc-loading" role="status"><span class="mfc-loading-dot" aria-hidden="true"></span>Updating live data…</div>`;
+}
+
+function mfcEntityLoading(snap) {
+  const state = snap?.state?.state;
+  return Boolean(state && (state === "unavailable" || state === "unknown"));
 }
 
 function mfcClock(value) {
@@ -121,6 +133,22 @@ function mfcClock(value) {
     if (hours <= 23 && minutes <= 59) return `${clock.slice(0, 2)}:${clock.slice(2)}`;
   }
   return String(value ?? "").trim() || "—";
+}
+
+/** Below FL100 → feet; at/above → flight level (matches app UI). */
+function mfcAltitude(altitudeFt, onGround) {
+  if (onGround) return "Ground";
+  if (altitudeFt == null || !Number.isFinite(Number(altitudeFt))) return "";
+  const rounded = Math.round(Number(altitudeFt));
+  if (rounded <= 0) return "Ground";
+  if (rounded < 10000) return `${rounded.toLocaleString("en-US")} ft`;
+  return `FL${Math.round(rounded / 100)}`;
+}
+
+function mfcHeading(heading) {
+  if (heading == null || !Number.isFinite(Number(heading))) return "";
+  const normalized = ((Math.round(Number(heading)) % 360) + 360) % 360;
+  return `${String(normalized).padStart(3, "0")}°`;
 }
 
 function mfcDateLabel(iso) {
@@ -585,6 +613,22 @@ function mfcStyles(dark, theme) {
     .mfc-cal-d.empty { background: transparent; border-color: transparent; }
     .mfc-cal-d.weekend { opacity: .85; }
     .mfc-badge { padding: 10px 12px; }
+    .mfc-loading {
+      display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+      padding: 6px 10px; border-radius: 8px; font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase; color: ${muted};
+      background: color-mix(in srgb, ${navyFill} 8%, ${card});
+      border: 1px solid ${border};
+    }
+    .mfc-loading-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: ${magenta};
+      animation: mfc-fids-pulse 1.2s ease-in-out infinite;
+    }
+    .mfc-light-meta {
+      display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 6px;
+      font-size: 0.82rem; align-items: baseline;
+    }
+    .mfc-light-meta strong { color: ${navy}; }
     a { color: ${magenta}; }
   `;
 }
@@ -808,9 +852,11 @@ function mfcFidsBoard(stats) {
     <div class="mfc-fids-head">
       <span class="mfc-fids-airport">${mfcEsc(stats.airport)}</span>
       <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}${
-        stats.missing_crew?.flights
-          ? ` · ${mfcEsc(stats.missing_crew.flights)} missing crew`
-          : ""
+        stats.missing_crew?.loading
+          ? " · checking crew…"
+          : stats.missing_crew?.flights
+            ? ` · ${mfcEsc(stats.missing_crew.flights)} missing crew`
+            : ""
       }</span>
     </div>
     <div class="mfc-fids-cols">
@@ -990,7 +1036,6 @@ function mfcEnsureBaseTiles(L, map, host, dark) {
   }
   host._mfcBaseTiles = L.tileLayer(dark ? MFC_TILE_DARK : MFC_TILE_LIGHT, {
     maxZoom: 13,
-    subdomains: "abcd",
   }).addTo(map);
   host._mfcBaseTiles.bringToBack();
 }
@@ -1376,7 +1421,16 @@ class MyFlightBaseCard extends HTMLElement {
   }
 
   _renderMissing() {
+    const snap = this._snapshot();
+    if (mfcEntityLoading(snap)) {
+      this._renderShell("myFlight", `${mfcLoadingBanner({ live_loading: true })}<p class="mfc-empty">Waiting for myFlight status…</p>`);
+      return;
+    }
     this._renderShell("myFlight", `<p class="mfc-empty">No status data. Edit this card and pick the myFlight Status sensor.</p>`);
+  }
+
+  _withLoading(body, attrs) {
+    return `${mfcLoadingBanner(attrs)}${body || ""}`;
   }
 
   _renderShell(title, body, { map = null, subtitle = "", status = "", icon = false, headerExtra = "", compact = false, board = false, fill = false } = {}) {
@@ -1519,7 +1573,7 @@ class MyFlightMissionCard extends MyFlightBaseCard {
     const mission = a.mission;
     const duty = mission?.duty || a.next_duty;
     if (!mission && !duty) {
-      this._renderShell("Your mission", `<p class="mfc-empty">No flight duty loaded.</p>`, { compact: true });
+      this._renderShell("Your mission", this._withLoading(`<p class="mfc-empty">No flight duty loaded.</p>`, a), { compact: true });
       return;
     }
     const flightDuty = mfcIsFlightDuty(duty) || Boolean(mission?.leg);
@@ -1530,14 +1584,81 @@ class MyFlightMissionCard extends MyFlightBaseCard {
       .filter(Boolean)
       .join(" · ");
     const sectors = mission?.sectors || [];
-    this._renderShell(mfcTitled("Your mission", a), `
+    this._renderShell(mfcTitled("Your mission", a), this._withLoading(`
       <p class="mfc-stat"><strong>${mfcEsc(mission?.registration || duty?.duty_text || "Duty")}</strong>
         ${meta ? `<span class="mfc-muted">${mfcEsc(meta)}</span>` : ""}</p>
       ${flightDuty ? mfcNeighbor("Coming from", mission?.previous, "arr", { variant: "inbound", turnaround: mission?.turnaround_before }) : ""}
       ${flightDuty ? mfcDutySectors(sectors, mission) : ""}
       ${flightDuty ? mfcNeighbor("Then", mission?.next, "dep", { variant: "outbound", turnaround: mission?.turnaround_after }) : ""}
       ${crew}
-    `, { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
+    `, a), { map: flightDuty ? mission?.map : null, subtitle: duty?.duty_text || "", icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
+  }
+}
+
+class MyFlightMissionLightCard extends MyFlightBaseCard {
+  getCardSize() { return 4; }
+  getGridOptions() {
+    return { columns: 12, rows: 4, min_rows: 3 };
+  }
+  _render() {
+    const snap = this._snapshot();
+    if (!snap.ok) { this._renderMissing(); return; }
+    const a = snap.attrs;
+    const mission = a.mission;
+    const duty = mission?.duty || a.next_duty;
+    if (!mission && !duty) {
+      this._renderShell(mfcTitled("Your mission", a), this._withLoading(`<p class="mfc-empty">No flight duty loaded.</p>`, a), {
+        compact: true,
+        icon: true,
+      });
+      return;
+    }
+    const flightDuty = mfcIsFlightDuty(duty) || Boolean(mission?.leg);
+    const checkIn = duty?.check_in || duty?.report_time;
+    const reg = mission?.registration || duty?.legs?.[0]?.registration || "";
+    const crew = mfcCrewLine(duty?.crew || []);
+    const prev = mission?.previous;
+    const ta = mission?.turnaround_before;
+    const net = mission?.network || {};
+    const active = (mission?.sectors || []).find((sec) => sec.active) || null;
+    const activeNet = active?.network || net;
+    const activeLeg = active?.leg || mission?.leg;
+    const progress = flightDuty
+      ? mfcProgressFromLeg(activeLeg, {
+          ...activeNet,
+          progress: mission?.progress ?? active?.progress,
+          times: mission?.times,
+        })
+      : null;
+    const landClock = mfcNetClock(activeNet, "arr")
+      || (activeLeg?.sta ? `STA ${mfcClock(activeLeg.sta)}` : "");
+    const inbound = prev?.departure
+      ? `${prev.flight_number ? `${prev.flight_number} · ` : ""}${prev.departure} → ${prev.arrival}`
+      : "";
+    const inboundClock = prev ? mfcNetClock(prev, "arr") : "";
+    const meta = [
+      checkIn ? `<span>Check-in <strong>${mfcEsc(mfcClock(checkIn))}</strong></span>` : "",
+      reg ? `<span>Tail <strong>${mfcEsc(reg)}</strong></span>` : "",
+      landClock ? `<span>Lands <strong>${mfcEsc(landClock)}</strong></span>` : "",
+    ].filter(Boolean).join("");
+    this._renderShell(mfcTitled("Your mission", a), this._withLoading(`
+      <div class="mfc-light-meta">${meta}</div>
+      ${inbound ? `<div class="mfc-sector inbound">
+        <span class="mfc-sector-k">Coming from</span>
+        <span class="mfc-sector-v"><strong>${mfcEsc(inbound)}</strong>
+          ${inboundClock ? `<span class="mfc-muted">${mfcEsc(inboundClock)}</span>` : ""}</span>
+        ${ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : ""}
+      </div>` : (ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : "")}
+      ${progress ? mfcProgress(progress) : `<p class="mfc-stat"><strong>${mfcEsc(duty?.duty_text || "Duty")}</strong></p>`}
+      ${crew}
+    `, a), {
+      map: flightDuty ? mission?.map : null,
+      status: mission?.status || "",
+      subtitle: duty?.duty_text || mfcDateLabel(duty?.date) || "",
+      icon: true,
+      compact: true,
+      headerExtra: mfcTimesLegend(a),
+    });
   }
 }
 
@@ -1572,11 +1693,12 @@ class MyFlightFlightTrackCard extends MyFlightBaseCard {
       arrDelayText: track.network?.arrival_delay_text,
       arrDelayTone: track.network?.arrival_delay_tone,
     };
-    const alt = pos?.altitude_ft != null ? `${pos.altitude_ft} ft` : "";
+    const alt = mfcAltitude(pos?.altitude_ft, pos?.on_ground);
     const gs = pos?.ground_speed_kt != null ? `${Math.round(pos.ground_speed_kt)} kt` : "";
+    const hdg = mfcHeading(pos?.heading);
     this._renderShell(mfcTitled("Live flight track", a), `
       <p class="mfc-stat"><strong>${mfcEsc(track.registration)}</strong>
-        <span class="mfc-muted">${mfcEsc([alt, gs].filter(Boolean).join(" · "))}</span></p>
+        <span class="mfc-muted">${mfcEsc([alt, gs, hdg].filter(Boolean).join(" · "))}</span></p>
       ${mfcProgress(route.departure ? route : null)}
       ${track.tracking?.found ? "" : `<p class="mfc-muted">${mfcEsc(track.tracking?.message || "No live position")}</p>`}
     `, { map: track.map, status: pos?.on_ground ? "on ground" : "en route", icon: true, headerExtra: mfcTimesLegend(a) });
@@ -1591,11 +1713,11 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
     const a = snap.attrs;
     const stats = a.airport_stats;
     if (!stats?.airport) {
-      this._renderShell("Airport departures", `<p class="mfc-empty">No airport in this snapshot yet.</p>`);
+      this._renderShell("Airport departures", this._withLoading(`<p class="mfc-empty">No airport in this snapshot yet.</p>`, a));
       return;
     }
-    if (stats.error) {
-      this._renderShell("Airport departures", `<p class="mfc-error">${mfcEsc(stats.error)}</p>`, { subtitle: stats.airport });
+    if (stats.error && !stats.flights?.length && stats.total == null) {
+      this._renderShell("Airport departures", this._withLoading(`<p class="mfc-error">${mfcEsc(stats.error)}</p>`, a), { subtitle: stats.airport });
       return;
     }
     const cells = [
@@ -1610,13 +1732,14 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
       stats.punctuality_percent != null ? ` · ${stats.punctuality_percent}% punctual` : ""
     }`;
     const crew = stats.missing_crew || {};
-    const missing = crew.flights || 0;
-    const crewTone = crew.error ? "" : (missing > 0 ? "cancel" : "");
-    const crewValue = crew.error ? "—" : missing;
+    const missing = Number(crew.flights || 0);
+    const crewBusy = Boolean(crew.loading);
+    const crewTone = crewBusy ? "" : (crew.error && !crew.stale ? "" : (missing > 0 ? "cancel" : "ok"));
+    const crewValue = crewBusy ? "…" : (crew.error && !crew.stale ? "—" : missing);
     const crewCell = `<div class="mfc-cell mfc-cell--wide ${crewTone}"><strong>${mfcEsc(crewValue)}</strong><span>${mfcEsc(mfcCrewShortageLabel(crew))}</span></div>`;
-    this._renderShell("Airport departures", `
+    this._renderShell("Airport departures", this._withLoading(`
       <div class="mfc-grid">${cells.map(([l, v, tone]) => `<div class="mfc-cell ${tone}"><strong>${mfcEsc(v ?? "—")}</strong><span>${mfcEsc(l)}</span></div>`).join("")}${crewCell}</div>
-    `, { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true, headerExtra: mfcTimesLegend(a) });
+    `, a), { subtitle: `${stats.airport} · ${stats.date || ""} · ${heading}`, icon: true, headerExtra: mfcTimesLegend(a) });
   }
 }
 
@@ -1649,18 +1772,22 @@ class MyFlightPartnerFlightCard extends MyFlightBaseCard {
     const a = snap.attrs;
     const live = a.partner_flight;
     if (!live || live.configured === false) {
-      this._renderShell("Partner live", `<p class="mfc-empty">Partner account is not connected.</p>`, { compact: true, icon: true });
+      this._renderShell("Partner live", this._withLoading(`<p class="mfc-empty">Partner account is not connected.</p>`, a), { compact: true, icon: true });
       return;
     }
     if (!live.status) {
-      this._renderShell(`${live.partner_label || "Partner"} · Live`, `<p class="mfc-empty">No live sector right now.</p>`, { compact: true, icon: true });
+      this._renderShell(`${live.partner_label || "Partner"} · Live`, this._withLoading(`<p class="mfc-empty">No live sector right now.</p>`, a), { compact: true, icon: true });
       return;
     }
     const net = live.network || {};
     const progress = mfcProgressFromLeg(live.leg, { ...net, progress: live.progress, times: live.times });
-    this._renderShell(`${live.partner_label || "Partner"} · Live`, `
-      ${mfcProgress(progress)}
-    `, { map: live.map, status: live.status, icon: true, compact: true, headerExtra: mfcTimesLegend(a) });
+    this._renderShell(`${live.partner_label || "Partner"} · Live`, this._withLoading(mfcProgress(progress), a), {
+      map: live.map,
+      status: live.status,
+      icon: true,
+      compact: true,
+      headerExtra: mfcTimesLegend(a),
+    });
   }
 }
 
@@ -1847,11 +1974,14 @@ class MyFlightAirportBoardCard extends MyFlightBaseCard {
         airport: wanted,
       });
     }
-    if (!stats?.airport) {
-      this._renderShell("Airport board", `<p class="mfc-empty">No airport yet. Default is your base.</p>`, { icon: true });
+    if (!stats?.airport || (stats.error && !stats.flights?.length && stats.total == null)) {
+      this._renderShell("Airport board", this._withLoading(
+        `<p class="mfc-empty">${stats?.error ? mfcEsc(stats.error) : "No airport yet. Default is your base."}</p>`,
+        a,
+      ), { icon: true });
       return;
     }
-    this._renderShell(`${stats.airport} departures`, mfcFidsBoard(stats), {
+    this._renderShell(`${stats.airport} departures`, this._withLoading(mfcFidsBoard(stats), a), {
       icon: true,
       board: true,
       fill: this._fillHeight(),
@@ -1894,6 +2024,7 @@ class MyFlightRosterChangesCard extends MyFlightBaseCard {
 const MFC_CARD_TYPES = [
   ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next", "Next scheduled item"],
   ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
+  ["myflight-mission-light-card", MyFlightMissionLightCard, "myFlight Mission light", "Compact check-in, tail, inbound, turnaround, crew"],
   ["myflight-live-flight-card", MyFlightLiveFlightCard, "myFlight Live", "Own live sector with map"],
   ["myflight-live-badge-card", MyFlightLiveBadgeCard, "myFlight Live badge", "Own live progress, no map"],
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
