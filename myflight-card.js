@@ -1,7 +1,7 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.25";
+const MFC_VERSION = "0.2.26";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
@@ -129,11 +129,21 @@ function mfcEsc(value) {
     .replace(/"/g, "&quot;");
 }
 
+/** Sum of role shortages (CP+FO+SC+CA), not “flights with any shortage”. */
+function mfcCrewPeopleMissing(crew) {
+  return Number(crew?.cp || 0)
+    + Number(crew?.fo || 0)
+    + Number(crew?.sc || 0)
+    + Number(crew?.ca || 0);
+}
+
 function mfcCrewShortageLabel(crew) {
   if (crew?.loading) return "Checking crew…";
   if (crew?.error && !crew?.stale) return String(crew.error);
-  const missing = Number(crew?.flights || 0);
-  if (!missing) return crew?.stale ? "Crew OK (cached)" : "Missing crew";
+  const people = mfcCrewPeopleMissing(crew);
+  if (!people && !Number(crew?.flights || 0)) {
+    return crew?.stale ? "Crew OK (cached)" : "Missing crew";
+  }
   const bits = [];
   if (crew.cp) bits.push(`${crew.cp} CP`);
   if (crew.fo) bits.push(`${crew.fo} FO`);
@@ -517,12 +527,28 @@ function mfcStyles(dark, theme) {
   const early = dark ? "#4ade80" : "#16a34a";
   const late = dark ? "#f87171" : "#dc2626";
   return `
-    :host { display: flex; flex-direction: column; max-height: 100%; }
+    :host {
+      display: block;
+      max-height: 100%;
+      align-self: start;
+      width: 100%;
+    }
+    :host([data-mfc-fill]) {
+      display: flex;
+      flex-direction: column;
+      align-self: stretch;
+      height: 100%;
+    }
     ha-card {
       background: ${card};
       color: ${text};
-      display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+      display: block;
       overflow: hidden;
+      height: auto;
+      width: 100%;
+    }
+    :host([data-mfc-fill]) ha-card {
+      display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
     }
     .mfc-status[hidden], .mfc-sub[hidden], .mfc-map[hidden] { display: none !important; }
     .mfc {
@@ -1162,8 +1188,8 @@ function mfcFidsBoard(stats) {
       <span class="mfc-fids-meta">Departures · ${mfcEsc(stats.date || "")} · ${flights.length}${
         stats.missing_crew?.loading
           ? " · checking crew…"
-          : stats.missing_crew?.flights
-            ? ` · ${mfcEsc(stats.missing_crew.flights)} missing crew`
+          : mfcCrewPeopleMissing(stats.missing_crew)
+            ? ` · ${mfcEsc(mfcCrewPeopleMissing(stats.missing_crew))} crew missing`
             : ""
       }</span>
     </div>
@@ -1799,6 +1825,8 @@ class MyFlightBaseCard extends HTMLElement {
     wrap.classList.toggle("compact", Boolean(compact));
     wrap.classList.toggle("mfc-board", Boolean(board));
     wrap.classList.toggle("mfc-fill", Boolean(fill));
+    if (fill || board) this.setAttribute("data-mfc-fill", "");
+    else this.removeAttribute("data-mfc-fill");
     const style = root.querySelector("style");
     if (style && style.textContent !== css) style.textContent = css;
     wrap.querySelector(".mfc-title").innerHTML = `${icon ? mfcIconPlane("currentColor") : ""}${mfcEsc(title)}`;
@@ -2128,7 +2156,7 @@ class MyFlightAirportStatsCard extends MyFlightBaseCard {
       stats.punctuality_percent != null ? ` · ${stats.punctuality_percent}% punctual` : ""
     }`;
     const crew = stats.missing_crew || {};
-    const missing = Number(crew.flights || 0);
+    const missing = mfcCrewPeopleMissing(crew);
     const crewBusy = Boolean(crew.loading);
     const crewTone = crewBusy ? "" : (crew.error && !crew.stale ? "" : (missing > 0 ? "cancel" : "ok"));
     const crewValue = crewBusy ? "…" : (crew.error && !crew.stale ? "—" : missing);
@@ -2274,6 +2302,15 @@ class MyFlightLiveBadgeCard extends MyFlightBaseCard {
 
 class MyFlightRosterCard extends MyFlightBaseCard {
   getCardSize() { return this._rosterCompact() ? 4 : 6; }
+  getGridOptions() {
+    const compact = this._rosterCompact();
+    return {
+      columns: 12,
+      rows: "auto",
+      min_rows: compact ? 3 : 5,
+      max_rows: compact ? 7 : 10,
+    };
+  }
   _rosterMonths() {
     const month = this._snapshot().attrs?.roster_month;
     if (!month?.year) return [];
