@@ -1,11 +1,12 @@
 /**
  * myFlight Lovelace cards.
  */
-const MFC_VERSION = "0.2.23";
+const MFC_VERSION = "0.2.24";
 const MFC_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 const MFC_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const MFC_DOC = "https://github.com/benalfoldi/myflight-card";
 const MFC_PLANE_PNG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="M21 16v-2l-8-5V3.5A1.5 1.5 0 0 0 11.5 2 1.5 1.5 0 0 0 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>')}`;
+const MFC_REFRESH_PNG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="M17.65 6.35C16.2 4.9 14.21 4 12 4A8 8 0 0 0 4 12h3c0-2.76 2.24-5 5-5 1.38 0 2.64.56 3.54 1.46L13 11h7V4l-2.35 2.35zM6.35 17.65C7.8 19.1 9.79 20 12 20a8 8 0 0 0 8-8h-3c0 2.76-2.24 5-5 5-1.38 0-2.64-.56-3.54-1.46L11 13H4v7l2.35-2.35z"/></svg>')}`;
 const MFC_WX_KEY = "mfc-map-weather";
 // Esri tiles (CARTO free basemaps watermark "API KEY REQUIRED" without a key).
 const MFC_TILE_LIGHT = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
@@ -397,6 +398,77 @@ function mfcTimesLegend(attrs) {
   return `<span class="mfc-tz">${mfcEsc(`Times ${label}`)}</span>`;
 }
 
+function mfcUpdatedClock(iso) {
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) {
+    const clock = mfcUsefulClock(iso);
+    return clock || "";
+  }
+  try {
+    return new Date(ms).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch (_e) {
+    return mfcUsefulClock(iso) || "";
+  }
+}
+
+/** Compact footer: snapshot age + manual refresh (myflight.refresh). */
+function mfcMetaBar(attrs, { refreshing = false } = {}) {
+  const clock = mfcUpdatedClock(attrs?.last_updated);
+  return `<div class="mfc-meta-bar">
+    <span class="mfc-updated">${clock ? `Updated ${mfcEsc(clock)}` : "Updated —"}</span>
+    <button type="button" class="mfc-refresh${refreshing ? " spin" : ""}" data-mfc-refresh
+      aria-label="Refresh mission" title="Refresh" ${refreshing ? "disabled" : ""}>
+      <span class="mfc-refresh-ico" aria-hidden="true"></span>
+    </button>
+  </div>`;
+}
+
+function mfcRotationPending(attrs) {
+  if (attrs?.mission_loading) return true;
+  return (attrs?.live_pending || []).some((k) => k === "rotation" || k === "mission_track");
+}
+
+/**
+ * One dense line for prep: tail · inbound route · turnaround.
+ * Keeps Mission light at partner-live height instead of a full inbound sector card.
+ * Always renders the three slots (ellipsis while rotation/tail is still resolving).
+ */
+function mfcMissionAircraftLine(mission, duty, attrs) {
+  const reg = mission?.registration
+    || duty?.legs?.[0]?.registration
+    || "";
+  const prev = mission?.previous;
+  const ta = mission?.turnaround_before;
+  const pending = mfcRotationPending(attrs);
+  const parts = [];
+  if (reg) {
+    parts.push(`<span>Tail <strong>${mfcEsc(reg)}</strong></span>`);
+  } else {
+    parts.push(`<span class="mfc-muted">${pending ? "Tail …" : "Tail —"}</span>`);
+  }
+  if (prev?.departure) {
+    const num = prev.flight_number ? `${prev.flight_number} · ` : "";
+    const clock = mfcNetClock(prev, "arr");
+    parts.push(
+      `<span>From <strong>${mfcEsc(num)}${mfcEsc(prev.departure)}→${mfcEsc(prev.arrival)}</strong>`
+      + `${clock ? ` <span class="mfc-muted">${mfcEsc(clock)}</span>` : ""}</span>`,
+    );
+  } else {
+    parts.push(`<span class="mfc-muted">${pending ? "From …" : "From —"}</span>`);
+  }
+  if (ta?.text) {
+    parts.push(mfcTurnaroundChip(ta, true));
+  } else {
+    parts.push(`<span class="mfc-chip unknown">${pending ? "TA …" : "TA —"}</span>`);
+  }
+  return `<div class="mfc-light-ac">${parts.join('<span class="mfc-dot" aria-hidden="true">·</span>')}</div>`;
+}
+
 function mfcEtaLeft(times) {
   if (!times || times.arr_label === "ATA" || times.departed === false) return "";
   const mins = mfcRemainingMins(times);
@@ -656,6 +728,39 @@ function mfcStyles(dark, theme) {
     .mfc.compact .mfc-route { font-size: 0.62rem; max-width: 10.5rem; }
     .mfc.compact .mfc-h { margin-bottom: 2px; }
     .mfc.compact .mfc-light-meta { margin: 0 0 2px; font-size: 0.76rem; gap: 4px 10px; }
+    .mfc.compact .mfc-light-ac { margin: 0 0 2px; font-size: 0.72rem; gap: 4px 6px; }
+    .mfc.compact .mfc-meta-bar { margin-top: 4px; }
+    .mfc-light-ac {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+      margin: 0 0 4px; font-size: 0.78rem; line-height: 1.35;
+    }
+    .mfc-light-ac strong { color: ${navy}; }
+    .mfc-light-ac .mfc-chip { margin: 0; }
+    .mfc-light-ac .mfc-dot { color: ${muted}; opacity: 0.7; }
+    .mfc-meta-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-top: 6px; min-height: 22px;
+    }
+    .mfc-updated {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+      color: ${muted}; line-height: 1;
+    }
+    .mfc-refresh {
+      font: inherit; width: 26px; height: 26px; min-height: 26px; padding: 0;
+      border-radius: 8px; border: 1px solid ${border}; background: ${bg};
+      color: ${muted}; cursor: pointer; display: inline-flex;
+      align-items: center; justify-content: center; flex: 0 0 auto;
+    }
+    .mfc-refresh:hover:not(:disabled) { color: ${magenta}; border-color: ${magenta}; }
+    .mfc-refresh:disabled { opacity: 0.55; cursor: default; }
+    .mfc-refresh-ico {
+      display: inline-block; width: 14px; height: 14px;
+      background-color: currentColor;
+      -webkit-mask: url("${MFC_REFRESH_PNG}") center / contain no-repeat;
+      mask: url("${MFC_REFRESH_PNG}") center / contain no-repeat;
+    }
+    .mfc-refresh.spin .mfc-refresh-ico { animation: mfc-spin 0.8s linear infinite; }
+    @keyframes mfc-spin { to { transform: rotate(360deg); } }
     .mfc-sector { margin-top: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid ${border}; }
     .mfc-sector.inbound {
       background: color-mix(in srgb, ${navyFill} 8%, ${card});
@@ -1069,9 +1174,10 @@ function mfcFidsBoard(stats) {
   </div>`;
 }
 
-function mfcTurnaroundChip(ta) {
+function mfcTurnaroundChip(ta, shortLabel) {
   if (!ta || !ta.text) return "";
-  return `<span class="mfc-chip ${mfcEsc(ta.tone || "long")}">Turnaround · ${mfcEsc(ta.text)}</span>`;
+  const label = shortLabel ? "TA" : "Turnaround";
+  return `<span class="mfc-chip ${mfcEsc(ta.tone || "long")}">${label} · ${mfcEsc(ta.text)}</span>`;
 }
 
 function mfcTurnaroundRow(items) {
@@ -1562,6 +1668,7 @@ class MyFlightBaseCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._config = {};
+    this._refreshing = false;
   }
 
   static getStubConfig() {
@@ -1636,6 +1743,34 @@ class MyFlightBaseCard extends HTMLElement {
     return `${mfcLoadingBanner(attrs)}${body || ""}`;
   }
 
+  _ensureActionHandlers() {
+    const wrap = this.shadowRoot?.querySelector(".mfc");
+    if (!wrap || wrap._mfcActionsBound) return;
+    wrap._mfcActionsBound = true;
+    wrap.addEventListener("click", (event) => {
+      const btn = event.target?.closest?.("[data-mfc-refresh]");
+      if (!btn || btn.disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this._forceRefresh();
+    });
+  }
+
+  _forceRefresh() {
+    const snap = this._snapshot();
+    if (!this._hass?.callService || !snap.entity || this._refreshing) return;
+    this._refreshing = true;
+    this._hassKey = "";
+    this._render();
+    Promise.resolve(this._hass.callService("myflight", "refresh", { entity_id: snap.entity }))
+      .catch(() => {})
+      .finally(() => {
+        this._refreshing = false;
+        this._hassKey = "";
+        if (this.isConnected) this._render();
+      });
+  }
+
   _renderShell(title, body, { map = null, subtitle = "", status = "", icon = false, headerExtra = "", compact = false, board = false, fill = false } = {}) {
     const dark = mfcIsDark(this._hass);
     const root = this.shadowRoot;
@@ -1700,6 +1835,7 @@ class MyFlightBaseCard extends HTMLElement {
       mapEl.hidden = true;
       mfcTeardownMap(mapEl);
     }
+    this._ensureActionHandlers();
     this._syncEtaTick();
   }
 
@@ -1823,15 +1959,15 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const a = snap.attrs;
     const mission = a.mission;
     const duty = mission?.duty || a.next_duty;
+    const foot = mfcMetaBar(a, { refreshing: this._refreshing });
     if (!mission && !duty) {
-      this._renderShell(mfcTitled("Your mission", a), `<p class="mfc-empty">No flight duty loaded.</p>`, {
+      this._renderShell(mfcTitled("Your mission", a), `<p class="mfc-empty">No flight duty loaded.</p>${foot}`, {
         compact: true,
         icon: true,
       });
       return;
     }
     const phase = mfcMissionPhase(mission, duty);
-    const flightDuty = phase !== "off";
     const title = mfcTitled("Your mission", a);
 
     if (phase === "off") {
@@ -1845,6 +1981,7 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
         <p class="mfc-stat"><strong>${mfcEsc(duty?.duty_text || duty?.duty_roster_code || "Duty")}</strong>
           <span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date) || "")}</span></p>
         ${when ? `<p class="mfc-muted">${mfcEsc(when)}</p>` : ""}
+        ${foot}
       `, { icon: true, compact: true, headerExtra: mfcTimesLegend(a), subtitle: duty?.label || "" });
       return;
     }
@@ -1852,8 +1989,6 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
     const checkIn = mfcUsefulClock(duty?.check_in || duty?.report_time);
     const reg = mission?.registration || duty?.legs?.[0]?.registration || "";
     const crew = mfcCrewLine(duty?.crew || []);
-    const prev = mission?.previous;
-    const ta = mission?.turnaround_before;
     const net = mission?.network || {};
     const active = (mission?.sectors || []).find((sec) => sec.active) || null;
     const activeNet = active?.network || net;
@@ -1870,6 +2005,7 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
       progress: mission?.progress ?? active?.progress,
       times: mission?.times,
     });
+    const aircraft = mfcMissionAircraftLine(mission, duty, a);
 
     if (phase === "live") {
       const liveMeta = [
@@ -1886,6 +2022,7 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
         ${liveMeta ? `<div class="mfc-light-meta">${liveMeta}</div>` : ""}
         ${progress ? mfcProgress(progress, { inlineDelays: true }) : ""}
         ${between}
+        ${foot}
       `, a, true), {
         icon: true,
         compact: true,
@@ -1897,33 +2034,25 @@ class MyFlightMissionLightCard extends MyFlightBaseCard {
       return;
     }
 
-    // Prep: home briefing before first sector moves (also next-day after checkout+1h).
+    // Prep: home briefing — check-in + dense aircraft/inbound/TA (no tall sector card).
     const firstLeg = duty?.legs?.[0] || activeLeg;
     const landClock = mfcNetClock(activeNet, "arr")
       || (firstLeg?.sta ? `STA ${mfcUsefulClock(firstLeg.sta)}` : "");
-    const inbound = prev?.departure
-      ? `${prev.flight_number ? `${prev.flight_number} · ` : ""}${prev.departure} → ${prev.arrival}`
-      : "";
-    const inboundClock = prev ? mfcNetClock(prev, "arr") : "";
     const meta = [
+      mfcDateLabel(duty?.date) ? `<span class="mfc-muted">${mfcEsc(mfcDateLabel(duty?.date))}</span>` : "",
       checkIn ? `<span>Check-in <strong>${mfcEsc(checkIn)}</strong></span>` : "",
-      reg ? `<span>Tail <strong>${mfcEsc(reg)}</strong></span>` : "",
       landClock && !landClock.endsWith("—") ? `<span>Lands <strong>${mfcEsc(landClock)}</strong></span>` : "",
     ].filter(Boolean).join("");
     this._renderShell(title, this._missionLoading(`
       ${meta ? `<div class="mfc-light-meta">${meta}</div>` : ""}
-      ${inbound ? `<div class="mfc-sector inbound">
-        <span class="mfc-sector-k">Coming from</span>
-        <span class="mfc-sector-v"><strong>${mfcEsc(inbound)}</strong>
-          ${inboundClock ? `<span class="mfc-muted">${mfcEsc(inboundClock)}</span>` : ""}</span>
-        ${ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : ""}
-      </div>` : (ta ? `<div class="mfc-chips">${mfcTurnaroundChip(ta)}</div>` : "")}
+      ${aircraft}
       ${crew}
+      ${foot}
     `, a, true), {
       icon: true,
       compact: true,
       headerExtra,
-      subtitle: subtitle || mfcDateLabel(duty?.date) || "",
+      subtitle,
       map: null,
     });
   }
@@ -2427,7 +2556,7 @@ class MyFlightRosterChangesCard extends MyFlightBaseCard {
 const MFC_CARD_TYPES = [
   ["myflight-next-duty-card", MyFlightNextDutyCard, "myFlight Next", "Next scheduled item"],
   ["myflight-mission-card", MyFlightMissionCard, "myFlight Current", "Current assignment with map"],
-  ["myflight-mission-light-card", MyFlightMissionLightCard, "myFlight Mission light", "Prep briefing, then live sector follow through duty"],
+  ["myflight-mission-light-card", MyFlightMissionLightCard, "myFlight Mission light", "Prep briefing with aircraft/inbound/TA, refresh, then live sector follow"],
   ["myflight-live-flight-card", MyFlightLiveFlightCard, "myFlight Live", "Own live sector with map"],
   ["myflight-live-badge-card", MyFlightLiveBadgeCard, "myFlight Live badge", "Own live progress, no map"],
   ["myflight-flight-track-card", MyFlightFlightTrackCard, "myFlight Track", "Tracked item with map"],
